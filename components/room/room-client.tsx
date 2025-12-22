@@ -12,6 +12,7 @@ import { ProposedMovies } from "./proposed-movies";
 import { toast } from "sonner";
 import type { Room, Member } from "@/lib/types";
 import { getRoomStatus, getRoomMembers } from "@/app/actions/room-actions";
+import { ThemeToggle } from "@/components/theme-toggle";
 
 interface RoomClientProps {
   roomId: string;
@@ -29,19 +30,22 @@ export function RoomClient({
   const [members, setMembers] = useState(initialMembers);
   const [copied, setCopied] = useState(false);
   const [movieRefreshKey, setMovieRefreshKey] = useState(0);
-  const [userId, setUserId] = useState<string | null>(() => {
-    if (typeof window !== "undefined") {
-      return localStorage.getItem("userId");
-    }
-    return null;
-  });
+  const [userId, setUserId] = useState<string | null>(null);
+  const [isMounted, setIsMounted] = useState(false);
+
+  // Cargar userId después del montaje para evitar hydration mismatch
+  useEffect(() => {
+    setIsMounted(true);
+    const storedUserId = localStorage.getItem("userId");
+    setUserId(storedUserId);
+  }, []);
 
   // Redirigir si no hay userId
   useEffect(() => {
-    if (!userId) {
+    if (isMounted && !userId) {
       router.push("/");
     }
-  }, [router, userId]);
+  }, [router, userId, isMounted]);
 
   // Setup de polling y subscriptions
   useEffect(() => {
@@ -136,6 +140,18 @@ export function RoomClient({
     setMovieRefreshKey((prev) => prev + 1);
   };
 
+  // Mostrar loading mientras se monta el componente
+  if (!isMounted) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-purple-50 via-white to-blue-50 dark:from-gray-900 dark:via-black dark:to-gray-900 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-600 mx-auto" />
+          <p className="mt-2 text-muted-foreground">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
   // Redirigir si no hay userId
   if (!userId) {
     return null;
@@ -176,15 +192,18 @@ export function RoomClient({
                   </div>
                 </div>
               </div>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleLeaveRoom}
-                className="flex-shrink-0"
-              >
-                <LogOut className="w-4 h-4 md:mr-2" />
-                <span className="hidden md:inline">Leave</span>
-              </Button>
+              <div className="flex items-center gap-2 shrink-0">
+                <ThemeToggle />
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleLeaveRoom}
+                  className="h-8 md:h-9"
+                >
+                  <LogOut className="w-3 h-3 md:w-4 md:h-4 md:mr-2" />
+                  <span className="hidden sm:inline">Leave</span>
+                </Button>
+              </div>
             </div>
           </CardHeader>
         </Card>

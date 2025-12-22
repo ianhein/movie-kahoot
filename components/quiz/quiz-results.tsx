@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Trophy, Medal, Star, Home } from "lucide-react";
 import { getQuizResults } from "@/app/actions/quiz-actions";
 import { useRouter } from "next/navigation";
+import { ThemeToggle } from "@/components/theme-toggle";
 
 interface QuizResultsProps {
   roomId: string;
@@ -67,6 +68,9 @@ export function QuizResults({ roomId }: QuizResultsProps) {
   if (isLoading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-purple-50 via-white to-blue-50 dark:from-gray-900 dark:via-black dark:to-gray-900 flex items-center justify-center p-4">
+        <div className="absolute top-4 right-4">
+          <ThemeToggle />
+        </div>
         <Card className="max-w-md w-full">
           <CardContent className="py-12 text-center">
             <p className="text-lg">Calculating results...</p>
@@ -78,6 +82,9 @@ export function QuizResults({ roomId }: QuizResultsProps) {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-purple-50 via-white to-blue-50 dark:from-gray-900 dark:via-black dark:to-gray-900 p-4">
+      <div className="absolute top-4 right-4">
+        <ThemeToggle />
+      </div>
       <div className="max-w-3xl mx-auto space-y-6 py-8">
         <Card className="text-center">
           <CardHeader>

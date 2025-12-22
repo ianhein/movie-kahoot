@@ -13,6 +13,7 @@ import {
 } from "@/app/actions/quiz-actions";
 import { toast } from "sonner";
 import type { Room, Question } from "@/lib/types";
+import { ThemeToggle } from "@/components/theme-toggle";
 
 interface QuizPlayerProps {
   roomId: string;
@@ -163,6 +164,9 @@ export function QuizPlayer({ roomId, userId }: QuizPlayerProps) {
   if (allQuestions.length === 0) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-purple-50 via-white to-blue-50 dark:from-gray-900 dark:via-black dark:to-gray-900 flex items-center justify-center p-4">
+        <div className="absolute top-4 right-4">
+          <ThemeToggle />
+        </div>
         <Card className="max-w-md w-full">
           <CardContent className="py-12 text-center">
             <Clock className="w-16 h-16 mx-auto mb-4 text-muted-foreground animate-pulse" />
@@ -183,6 +187,9 @@ export function QuizPlayer({ roomId, userId }: QuizPlayerProps) {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-purple-50 via-white to-blue-50 dark:from-gray-900 dark:via-black dark:to-gray-900 flex items-center justify-center p-4">
+      <div className="absolute top-4 right-4">
+        <ThemeToggle />
+      </div>
       <Card className="max-w-2xl w-full">
         <CardHeader>
           <div className="flex items-center justify-between mb-4">

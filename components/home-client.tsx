@@ -16,6 +16,7 @@ import { createRoom, joinRoom } from "@/app/actions/room-actions";
 import { testConnection } from "@/app/actions/test-connection";
 import { Film, Users, TestTube } from "lucide-react";
 import { toast } from "sonner";
+import { ThemeToggle } from "@/components/theme-toggle";
 
 export function HomeClient() {
   const router = useRouter();
@@ -98,6 +99,9 @@ export function HomeClient() {
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-purple-50 via-white to-blue-50 dark:from-gray-900 dark:via-black dark:to-gray-900 p-3 md:p-4">
+      <div className="absolute top-4 right-4">
+        <ThemeToggle />
+      </div>
       <div className="w-full max-w-lg space-y-6 md:space-y-8">
         <div className="text-center space-y-2">
           <div className="flex justify-center mb-3 md:mb-4">

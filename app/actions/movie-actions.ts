@@ -127,6 +127,26 @@ export async function voteForMovie(
   return { success: true };
 }
 
+export async function removeProposedMovie(roomId: string, roomMovieId: string) {
+  const supabase = createAdminClient();
+
+  // Eliminar la película propuesta
+  const { error } = await supabase
+    .from("room_movies")
+    .delete()
+    .eq("id", roomMovieId)
+    .eq("room_id", roomId);
+
+  if (error) {
+    return { error: "Failed to remove movie" };
+  }
+
+  // Revalidar cache
+  updateTag(`room-movies-${roomId}`);
+
+  return { success: true };
+}
+
 export async function getProposedMovies(roomId: string) {
   return unstable_cache(
     async () => {

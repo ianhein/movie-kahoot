@@ -5,15 +5,25 @@ import { useRouter } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { ThumbsUp, ThumbsDown, Check, Film, Loader2 } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { ThumbsUp, ThumbsDown, Check, Film, Loader2, X } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import {
   getProposedMovies,
   voteForMovie,
   selectMovie,
+  removeProposedMovie,
 } from "@/app/actions/movie-actions";
 import { toast } from "sonner";
 import type { Movie, RoomMovie } from "@/lib/types";
+import { MovieDetailsDialog } from "@/components/movie/movie-details-dialog";
 
 interface ProposedMoviesProps {
   roomId: string;
@@ -31,7 +41,15 @@ export function ProposedMovies({
   const [isLoading, setIsLoading] = useState(true);
   const [votingFor, setVotingFor] = useState<string | null>(null);
   const [selecting, setSelecting] = useState<string | null>(null);
+  const [removing, setRemoving] = useState<string | null>(null);
   const [loadingImages, setLoadingImages] = useState<Set<string>>(new Set());
+  const [selectedMovieId, setSelectedMovieId] = useState<string | null>(null);
+  const [detailsDialogOpen, setDetailsDialogOpen] = useState(false);
+  const [removeDialogOpen, setRemoveDialogOpen] = useState(false);
+  const [movieToRemove, setMovieToRemove] = useState<{
+    id: string;
+    title: string;
+  } | null>(null);
 
   const loadMovies = async () => {
     const result = await getProposedMovies(roomId);
@@ -147,6 +165,8 @@ export function ProposedMovies({
       const result = await voteForMovie(roomMovieId, userId, vote);
       if (result.error) {
         toast.error(result.error);
+      } else {
+        toast.success(vote ? "Voted yes! 👍" : "Voted no 👎");
       }
     } catch (error) {
       toast.error("Failed to vote");
@@ -175,6 +195,36 @@ export function ProposedMovies({
     }
   };
 
+  const handleRemoveMovie = async (
+    roomMovieId: string,
+    movieTitle: string,
+    e: React.MouseEvent
+  ) => {
+    e.stopPropagation();
+    setMovieToRemove({ id: roomMovieId, title: movieTitle });
+    setRemoveDialogOpen(true);
+  };
+
+  const confirmRemoveMovie = async () => {
+    if (!movieToRemove) return;
+
+    setRemoving(movieToRemove.id);
+    try {
+      const result = await removeProposedMovie(roomId, movieToRemove.id);
+      if (result.error) {
+        toast.error(result.error);
+      } else {
+        toast.success("Movie removed");
+      }
+    } catch (error) {
+      toast.error("Failed to remove movie");
+    } finally {
+      setRemoving(null);
+      setRemoveDialogOpen(false);
+      setMovieToRemove(null);
+    }
+  };
+
   const getUserVote = (roomMovie: RoomMovie) => {
     return roomMovie.movie_votes.find((v) => v.user_id === userId);
   };
@@ -183,6 +233,11 @@ export function ProposedMovies({
     const upvotes = roomMovie.movie_votes.filter((v) => v.vote).length;
     const downvotes = roomMovie.movie_votes.filter((v) => !v.vote).length;
     return { upvotes, downvotes };
+  };
+
+  const handleOpenDetails = (movieId: string) => {
+    setSelectedMovieId(movieId);
+    setDetailsDialogOpen(true);
   };
 
   if (isLoading) {
@@ -222,10 +277,18 @@ export function ProposedMovies({
           return (
             <div
               key={roomMovie.id}
-              className="flex gap-2 md:gap-3 p-2 md:p-3 rounded-lg border bg-card"
+              className="flex gap-2 md:gap-3 p-2 md:p-3 rounded-lg border bg-card cursor-pointer hover:bg-accent transition-colors"
+              onClick={() => handleOpenDetails(movie.id)}
+              role="button"
+              tabIndex={0}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  handleOpenDetails(movie.id);
+                }
+              }}
             >
               {movie.poster_url ? (
-                <div className="relative w-16 h-24 md:w-20 md:h-28 flex-shrink-0">
+                <div className="relative w-16 h-24 md:w-20 md:h-28 shrink-0">
                   {isImageLoading && (
                     <div className="absolute inset-0 bg-muted rounded flex items-center justify-center">
                       <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
@@ -258,7 +321,20 @@ export function ProposedMovies({
                       </p>
                     )}
                   </div>
-                  <div className="flex gap-1 md:gap-2 flex-shrink-0">
+                  <div className="flex gap-1 md:gap-2 shrink-0">
+                    {isHost && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-6 w-6 p-0 hover:bg-destructive hover:text-destructive-foreground"
+                        onClick={(e) =>
+                          handleRemoveMovie(roomMovie.id, movie.title, e)
+                        }
+                        disabled={removing === roomMovie.id}
+                      >
+                        <X className="w-4 h-4" />
+                      </Button>
+                    )}
                     <Badge
                       variant="secondary"
                       className="gap-0.5 md:gap-1 text-xs md:text-sm px-1.5 md:px-2"
@@ -282,7 +358,10 @@ export function ProposedMovies({
                   <Button
                     size="sm"
                     variant={userVote?.vote === true ? "default" : "outline"}
-                    onClick={() => handleVote(roomMovie.id, true)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleVote(roomMovie.id, true);
+                    }}
                     disabled={votingFor === roomMovie.id}
                     className="h-8 text-xs md:text-sm"
                   >
@@ -294,7 +373,10 @@ export function ProposedMovies({
                     variant={
                       userVote?.vote === false ? "destructive" : "outline"
                     }
-                    onClick={() => handleVote(roomMovie.id, false)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleVote(roomMovie.id, false);
+                    }}
                     disabled={votingFor === roomMovie.id}
                     className="h-8 text-xs md:text-sm"
                   >
@@ -306,7 +388,10 @@ export function ProposedMovies({
                       size="sm"
                       variant="default"
                       className="ml-auto h-8 text-xs md:text-sm"
-                      onClick={() => handleSelectMovie(roomMovie.id)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleSelectMovie(roomMovie.id);
+                      }}
                       disabled={selecting === roomMovie.id}
                     >
                       <Check className="w-3 h-3 md:w-4 md:h-4 md:mr-1" />
@@ -324,6 +409,41 @@ export function ProposedMovies({
           );
         })}
       </CardContent>
+
+      <MovieDetailsDialog
+        movieId={selectedMovieId}
+        open={detailsDialogOpen}
+        onOpenChange={setDetailsDialogOpen}
+      />
+
+      <Dialog open={removeDialogOpen} onOpenChange={setRemoveDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Remove Movie?</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to remove &ldquo;
+              {movieToRemove?.title}&rdquo; from the proposed movies? This
+              action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setRemoveDialogOpen(false)}
+              disabled={removing === movieToRemove?.id}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={confirmRemoveMovie}
+              disabled={removing === movieToRemove?.id}
+            >
+              {removing === movieToRemove?.id ? "Removing..." : "Remove"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 }

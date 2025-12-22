@@ -24,6 +24,7 @@ import {
 } from "@/app/actions/quiz-actions";
 import { toast } from "sonner";
 import type { Room, QuizMember, Question, Answer } from "@/lib/types";
+import { ThemeToggle } from "@/components/theme-toggle";
 
 interface QuizHostProps {
   roomId: string;
@@ -304,6 +305,7 @@ export function QuizHost({
                   </div>
                 </div>
                 <div className="flex flex-col sm:flex-row gap-2 shrink-0">
+                  <ThemeToggle />
                   {!arePublished && questions.length > 0 && (
                     <Button
                       variant="default"
