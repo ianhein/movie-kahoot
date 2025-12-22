@@ -187,9 +187,6 @@ export async function createQuestion(
     return { error: "Failed to create question" };
   }
 
-  // Revalidar cache de preguntas
-  updateTag(`quiz-questions-${roomId}`);
-
   return { success: true, question };
 }
 

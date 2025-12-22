@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { mutate } from "swr";
 import {
   Card,
   CardContent,
@@ -18,6 +19,7 @@ import {
   type TMDBMovie,
 } from "@/lib/tmdb";
 import { proposeMovie } from "@/app/actions/movie-actions";
+import { createClient } from "@/lib/supabase/client";
 import { toast } from "sonner";
 
 interface MovieSearchProps {
@@ -88,10 +90,21 @@ export function MovieSearch({
         setMovies([]);
         setQuery("");
 
-        // Esperar un momento para que la DB se actualice
-        await new Promise((resolve) => setTimeout(resolve, 500));
+        // Enviar broadcast para notificar a todos los clientes
+        const supabase = createClient();
+        const channel = supabase.channel(`movies-control:${roomId}`);
+        await channel.subscribe();
+        await channel.send({
+          type: "broadcast",
+          event: "movies_updated",
+          payload: { timestamp: Date.now() },
+        });
+        supabase.removeChannel(channel);
 
-        // Notificar al padre para recargar
+        // Revalidar SWR localmente
+        mutate(`proposed-movies-${roomId}`);
+
+        // Notificar al padre
         onMovieProposed?.();
 
         toast.success("Movie proposed!");

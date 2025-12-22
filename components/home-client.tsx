@@ -98,7 +98,10 @@ export function HomeClient() {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-purple-50 via-white to-blue-50 dark:from-gray-900 dark:via-black dark:to-gray-900 p-3 md:p-4">
+    <div
+      suppressHydrationWarning
+      className="flex min-h-screen items-center justify-center bg-gradient-to-br from-purple-50 via-white to-blue-50 dark:from-gray-900 dark:via-black dark:to-gray-900 p-3 md:p-4"
+    >
       <div className="absolute top-4 right-4">
         <ThemeToggle />
       </div>

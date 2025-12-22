@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import useSWR, { mutate } from "swr";
+import { motion, AnimatePresence } from "framer-motion";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -22,7 +24,7 @@ import {
   removeProposedMovie,
 } from "@/app/actions/movie-actions";
 import { toast } from "sonner";
-import type { Movie, RoomMovie } from "@/lib/types";
+import type { RoomMovie } from "@/lib/types";
 import { MovieDetailsDialog } from "@/components/movie/movie-details-dialog";
 
 interface ProposedMoviesProps {
@@ -51,13 +53,29 @@ export function ProposedMovies({
     title: string;
   } | null>(null);
 
-  const loadMovies = async () => {
-    const result = await getProposedMovies(roomId);
-    if (result.movies) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const newMovies = result.movies as any;
+  // SWR para películas propuestas - polling + broadcast para actualizaciones instantáneas
+  const { data: moviesData } = useSWR(
+    `proposed-movies-${roomId}`,
+    async () => {
+      const result = await getProposedMovies(roomId);
+      if (result.movies) {
+        return result.movies as RoomMovie[];
+      }
+      return [];
+    },
+    {
+      refreshInterval: 15000, // Polling cada 15s como fallback
+      revalidateOnFocus: true,
+      dedupingInterval: 1000,
+    }
+  );
 
-      // Solo marcar como loading las nuevas películas que no estaban antes
+  // Actualizar estado local cuando SWR obtiene nuevos datos
+  useEffect(() => {
+    if (moviesData) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const newMovies = moviesData as any;
+
       setMovies((prevMovies) => {
         const prevIds = new Set(prevMovies.map((m) => m.id));
         const newImageIds = newMovies
@@ -74,9 +92,26 @@ export function ProposedMovies({
 
         return newMovies;
       });
+      setIsLoading(false);
     }
-    setIsLoading(false);
-  };
+  }, [moviesData]);
+
+  // Suscribirse a broadcast para actualizaciones instantáneas
+  useEffect(() => {
+    const supabase = createClient();
+
+    const channel = supabase
+      .channel(`movies-control:${roomId}`)
+      .on("broadcast", { event: "movies_updated" }, () => {
+        // Revalidar SWR inmediatamente
+        mutate(`proposed-movies-${roomId}`);
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [roomId]);
 
   const handleImageLoad = (roomMovieId: string) => {
     setLoadingImages((prev) => {
@@ -86,78 +121,18 @@ export function ProposedMovies({
     });
   };
 
-  useEffect(() => {
-    loadMovies();
-
-    // Polling cada 10 segundos - confiar en Realtime para actualizaciones
-    const pollingInterval = setInterval(() => {
-      loadMovies();
-    }, 3000);
-
-    // Suscribirse a cambios en tiempo real (si está habilitado)
+  // Función helper para enviar broadcast de actualización
+  const broadcastMoviesUpdate = async () => {
     const supabase = createClient();
-
-    const channel = supabase
-      .channel(`room_movies_${roomId}`)
-      .on(
-        "postgres_changes",
-        {
-          event: "INSERT",
-          schema: "public",
-          table: "room_movies",
-          filter: `room_id=eq.${roomId}`,
-        },
-        (payload) => {
-          console.log("Room movie inserted:", payload);
-          loadMovies();
-        }
-      )
-      .on(
-        "postgres_changes",
-        {
-          event: "UPDATE",
-          schema: "public",
-          table: "room_movies",
-          filter: `room_id=eq.${roomId}`,
-        },
-        (payload) => {
-          console.log("Room movie updated:", payload);
-          loadMovies();
-        }
-      )
-      .on(
-        "postgres_changes",
-        {
-          event: "INSERT",
-          schema: "public",
-          table: "movie_votes",
-        },
-        (payload) => {
-          console.log("Vote inserted:", payload);
-          loadMovies();
-        }
-      )
-      .on(
-        "postgres_changes",
-        {
-          event: "UPDATE",
-          schema: "public",
-          table: "movie_votes",
-        },
-        (payload) => {
-          console.log("Vote updated:", payload);
-          loadMovies();
-        }
-      )
-      .subscribe((status) => {
-        console.log("Subscription status:", status);
-      });
-
-    return () => {
-      clearInterval(pollingInterval);
-      supabase.removeChannel(channel);
-    };
-  }, [roomId]);
+    const channel = supabase.channel(`movies-control:${roomId}`);
+    await channel.subscribe();
+    await channel.send({
+      type: "broadcast",
+      event: "movies_updated",
+      payload: { timestamp: Date.now() },
+    });
+    supabase.removeChannel(channel);
+  };
 
   const handleVote = async (roomMovieId: string, vote: boolean) => {
     setVotingFor(roomMovieId);
@@ -167,8 +142,12 @@ export function ProposedMovies({
         toast.error(result.error);
       } else {
         toast.success(vote ? "Voted yes! 👍" : "Voted no 👎");
+        // Notificar a todos los clientes
+        broadcastMoviesUpdate();
+        // También revalidar localmente
+        mutate(`proposed-movies-${roomId}`);
       }
-    } catch (error) {
+    } catch {
       toast.error("Failed to vote");
     } finally {
       setVotingFor(null);
@@ -181,16 +160,29 @@ export function ProposedMovies({
       const result = await selectMovie(roomId, roomMovieId);
       if (result.error) {
         toast.error(result.error);
+        setSelecting(null);
       } else {
         toast.success("Movie selected! Starting quiz...");
-        // Redirigir a la página del quiz
-        setTimeout(() => {
-          router.push(`/room/${roomId}/quiz`);
-        }, 500);
+
+        // Enviar broadcast a todos los miembros de la sala usando canal dedicado
+        const supabase = createClient();
+        const broadcastChannel = supabase.channel(`room-control:${roomId}`, {
+          config: { broadcast: { ack: true } },
+        });
+
+        await broadcastChannel.subscribe();
+        await broadcastChannel.send({
+          type: "broadcast",
+          event: "quiz_started",
+          payload: { timestamp: Date.now() },
+        });
+
+        // Limpiar el canal y redirigir
+        supabase.removeChannel(broadcastChannel);
+        router.push(`/room/${roomId}/quiz`);
       }
-    } catch (error) {
+    } catch {
       toast.error("Failed to select movie");
-    } finally {
       setSelecting(null);
     }
   };
@@ -213,12 +205,20 @@ export function ProposedMovies({
       const result = await removeProposedMovie(roomId, movieToRemove.id);
       if (result.error) {
         toast.error(result.error);
+        setRemoving(null);
+        setRemoveDialogOpen(false);
+        setMovieToRemove(null);
       } else {
+        // Notificar a todos los clientes y revalidar localmente
+        await broadcastMoviesUpdate();
+        await mutate(`proposed-movies-${roomId}`);
         toast.success("Movie removed");
+        setRemoving(null);
+        setRemoveDialogOpen(false);
+        setMovieToRemove(null);
       }
-    } catch (error) {
+    } catch {
       toast.error("Failed to remove movie");
-    } finally {
       setRemoving(null);
       setRemoveDialogOpen(false);
       setMovieToRemove(null);
@@ -266,148 +266,187 @@ export function ProposedMovies({
         <CardTitle className="text-base md:text-lg">Proposed Movies</CardTitle>
       </CardHeader>
       <CardContent className="p-4 md:p-6 pt-0 space-y-3">
-        {movies.map((roomMovie) => {
-          if (!roomMovie.movies) return null;
+        <AnimatePresence>
+          {movies.map((roomMovie, index) => {
+            if (!roomMovie.movies) return null;
 
-          const userVote = getUserVote(roomMovie);
-          const { upvotes, downvotes } = getVoteCount(roomMovie);
-          const movie = roomMovie.movies;
-          const isImageLoading = loadingImages.has(roomMovie.id);
+            const userVote = getUserVote(roomMovie);
+            const { upvotes, downvotes } = getVoteCount(roomMovie);
+            const movie = roomMovie.movies;
+            const isImageLoading = loadingImages.has(roomMovie.id);
 
-          return (
-            <div
-              key={roomMovie.id}
-              className="flex gap-2 md:gap-3 p-2 md:p-3 rounded-lg border bg-card cursor-pointer hover:bg-accent transition-colors"
-              onClick={() => handleOpenDetails(movie.id)}
-              role="button"
-              tabIndex={0}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" || e.key === " ") {
-                  handleOpenDetails(movie.id);
-                }
-              }}
-            >
-              {movie.poster_url ? (
-                <div className="relative w-16 h-24 md:w-20 md:h-28 shrink-0">
-                  {isImageLoading && (
-                    <div className="absolute inset-0 bg-muted rounded flex items-center justify-center">
-                      <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
-                    </div>
-                  )}
-                  <img
-                    src={movie.poster_url}
-                    alt={movie.title}
-                    className={`w-full h-full object-cover rounded ${
-                      isImageLoading ? "opacity-0" : "opacity-100"
-                    } transition-opacity duration-300`}
-                    onLoad={() => handleImageLoad(roomMovie.id)}
-                    onError={() => handleImageLoad(roomMovie.id)}
-                  />
-                </div>
-              ) : (
-                <div className="w-16 h-24 md:w-20 md:h-28 bg-muted rounded flex items-center justify-center flex-shrink-0">
-                  <Film className="w-6 h-6 md:w-8 md:h-8 text-muted-foreground" />
-                </div>
-              )}
-              <div className="flex-1 min-w-0">
-                <div className="flex items-start justify-between gap-1 md:gap-2">
-                  <div className="min-w-0 flex-1">
-                    <h3 className="font-semibold text-sm md:text-base truncate">
-                      {movie.title}
-                    </h3>
-                    {movie.year && (
-                      <p className="text-xs md:text-sm text-muted-foreground">
-                        {movie.year}
-                      </p>
+            return (
+              <motion.div
+                key={roomMovie.id}
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, x: -100 }}
+                transition={{ delay: index * 0.05, duration: 0.3 }}
+                layout
+                className="flex gap-2 md:gap-3 p-2 md:p-3 rounded-lg border bg-card cursor-pointer hover:bg-accent transition-colors"
+                onClick={() => handleOpenDetails(movie.id)}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    handleOpenDetails(movie.id);
+                  }
+                }}
+              >
+                {movie.poster_url ? (
+                  <div className="relative w-16 h-24 md:w-20 md:h-28 shrink-0">
+                    {isImageLoading && (
+                      <div className="absolute inset-0 bg-muted rounded flex items-center justify-center">
+                        <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+                      </div>
                     )}
+                    <img
+                      src={movie.poster_url}
+                      alt={movie.title}
+                      className={`w-full h-full object-cover rounded ${
+                        isImageLoading ? "opacity-0" : "opacity-100"
+                      } transition-opacity duration-300`}
+                      onLoad={() => handleImageLoad(roomMovie.id)}
+                      onError={() => handleImageLoad(roomMovie.id)}
+                    />
                   </div>
-                  <div className="flex gap-1 md:gap-2 shrink-0">
-                    {isHost && (
+                ) : (
+                  <div className="w-16 h-24 md:w-20 md:h-28 bg-muted rounded flex items-center justify-center flex-shrink-0">
+                    <Film className="w-6 h-6 md:w-8 md:h-8 text-muted-foreground" />
+                  </div>
+                )}
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-start justify-between gap-1 md:gap-2">
+                    <div className="min-w-0 flex-1">
+                      <h3 className="font-semibold text-sm md:text-base truncate">
+                        {movie.title}
+                      </h3>
+                      {movie.year && (
+                        <p className="text-xs md:text-sm text-muted-foreground">
+                          {movie.year}
+                        </p>
+                      )}
+                    </div>
+                    <div className="flex gap-1 md:gap-2 shrink-0">
+                      {isHost && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-6 w-6 p-0 hover:bg-destructive hover:text-destructive-foreground"
+                          onClick={(e) =>
+                            handleRemoveMovie(roomMovie.id, movie.title, e)
+                          }
+                          disabled={removing === roomMovie.id}
+                        >
+                          <X className="w-4 h-4" />
+                        </Button>
+                      )}
+                      <motion.div
+                        key={`up-${upvotes}`}
+                        initial={{ scale: 1 }}
+                        animate={{ scale: [1, 1.3, 1] }}
+                        transition={{ duration: 0.3 }}
+                      >
+                        <Badge
+                          variant="secondary"
+                          className="gap-0.5 md:gap-1 text-xs md:text-sm px-1.5 md:px-2"
+                        >
+                          <ThumbsUp className="w-3 h-3" />
+                          {upvotes}
+                        </Badge>
+                      </motion.div>
+                      <motion.div
+                        key={`down-${downvotes}`}
+                        initial={{ scale: 1 }}
+                        animate={{ scale: [1, 1.3, 1] }}
+                        transition={{ duration: 0.3 }}
+                      >
+                        <Badge
+                          variant="secondary"
+                          className="gap-0.5 md:gap-1 text-xs md:text-sm px-1.5 md:px-2"
+                        >
+                          <ThumbsDown className="w-3 h-3" />
+                          {downvotes}
+                        </Badge>
+                      </motion.div>
+                    </div>
+                  </div>
+                  <p className="text-xs md:text-sm text-muted-foreground mt-1 md:mt-2 line-clamp-2 hidden sm:block">
+                    {movie.overview}
+                  </p>
+                  <div className="flex flex-wrap gap-1.5 md:gap-2 mt-2 md:mt-3">
+                    <motion.div
+                      whileHover={{ scale: 1.05 }}
+                      whileTap={{ scale: 0.95 }}
+                    >
                       <Button
                         size="sm"
-                        variant="ghost"
-                        className="h-6 w-6 p-0 hover:bg-destructive hover:text-destructive-foreground"
-                        onClick={(e) =>
-                          handleRemoveMovie(roomMovie.id, movie.title, e)
+                        variant={
+                          userVote?.vote === true ? "default" : "outline"
                         }
-                        disabled={removing === roomMovie.id}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleVote(roomMovie.id, true);
+                        }}
+                        disabled={votingFor === roomMovie.id}
+                        className="h-8 text-xs md:text-sm"
                       >
-                        <X className="w-4 h-4" />
+                        <ThumbsUp className="w-3 h-3 md:w-4 md:h-4 md:mr-1" />
+                        <span className="hidden sm:inline">Yes</span>
                       </Button>
+                    </motion.div>
+                    <motion.div
+                      whileHover={{ scale: 1.05 }}
+                      whileTap={{ scale: 0.95 }}
+                    >
+                      <Button
+                        size="sm"
+                        variant={
+                          userVote?.vote === false ? "destructive" : "outline"
+                        }
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleVote(roomMovie.id, false);
+                        }}
+                        disabled={votingFor === roomMovie.id}
+                        className="h-8 text-xs md:text-sm"
+                      >
+                        <ThumbsDown className="w-3 h-3 md:w-4 md:h-4 md:mr-1" />
+                        <span className="hidden sm:inline">No</span>
+                      </Button>
+                    </motion.div>
+                    {isHost && (
+                      <motion.div
+                        className="ml-auto"
+                        whileHover={{ scale: 1.05 }}
+                        whileTap={{ scale: 0.95 }}
+                      >
+                        <Button
+                          size="sm"
+                          variant="default"
+                          className="h-8 text-xs md:text-sm"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleSelectMovie(roomMovie.id);
+                          }}
+                          disabled={selecting === roomMovie.id}
+                        >
+                          <Check className="w-3 h-3 md:w-4 md:h-4 md:mr-1" />
+                          <span className="hidden md:inline">
+                            {selecting === roomMovie.id
+                              ? "Selecting..."
+                              : "Select & Start Quiz"}
+                          </span>
+                          <span className="md:hidden">Select</span>
+                        </Button>
+                      </motion.div>
                     )}
-                    <Badge
-                      variant="secondary"
-                      className="gap-0.5 md:gap-1 text-xs md:text-sm px-1.5 md:px-2"
-                    >
-                      <ThumbsUp className="w-3 h-3" />
-                      {upvotes}
-                    </Badge>
-                    <Badge
-                      variant="secondary"
-                      className="gap-0.5 md:gap-1 text-xs md:text-sm px-1.5 md:px-2"
-                    >
-                      <ThumbsDown className="w-3 h-3" />
-                      {downvotes}
-                    </Badge>
                   </div>
                 </div>
-                <p className="text-xs md:text-sm text-muted-foreground mt-1 md:mt-2 line-clamp-2 hidden sm:block">
-                  {movie.overview}
-                </p>
-                <div className="flex flex-wrap gap-1.5 md:gap-2 mt-2 md:mt-3">
-                  <Button
-                    size="sm"
-                    variant={userVote?.vote === true ? "default" : "outline"}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleVote(roomMovie.id, true);
-                    }}
-                    disabled={votingFor === roomMovie.id}
-                    className="h-8 text-xs md:text-sm"
-                  >
-                    <ThumbsUp className="w-3 h-3 md:w-4 md:h-4 md:mr-1" />
-                    <span className="hidden sm:inline">Yes</span>
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant={
-                      userVote?.vote === false ? "destructive" : "outline"
-                    }
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleVote(roomMovie.id, false);
-                    }}
-                    disabled={votingFor === roomMovie.id}
-                    className="h-8 text-xs md:text-sm"
-                  >
-                    <ThumbsDown className="w-3 h-3 md:w-4 md:h-4 md:mr-1" />
-                    <span className="hidden sm:inline">No</span>
-                  </Button>
-                  {isHost && (
-                    <Button
-                      size="sm"
-                      variant="default"
-                      className="ml-auto h-8 text-xs md:text-sm"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleSelectMovie(roomMovie.id);
-                      }}
-                      disabled={selecting === roomMovie.id}
-                    >
-                      <Check className="w-3 h-3 md:w-4 md:h-4 md:mr-1" />
-                      <span className="hidden md:inline">
-                        {selecting === roomMovie.id
-                          ? "Selecting..."
-                          : "Select & Start Quiz"}
-                      </span>
-                      <span className="md:hidden">Select</span>
-                    </Button>
-                  )}
-                </div>
-              </div>
-            </div>
-          );
-        })}
+              </motion.div>
+            );
+          })}
+        </AnimatePresence>
       </CardContent>
 
       <MovieDetailsDialog
@@ -416,8 +455,25 @@ export function ProposedMovies({
         onOpenChange={setDetailsDialogOpen}
       />
 
-      <Dialog open={removeDialogOpen} onOpenChange={setRemoveDialogOpen}>
-        <DialogContent>
+      <Dialog
+        open={removeDialogOpen}
+        onOpenChange={(open) => {
+          // Solo permitir cerrar si no está eliminando
+          if (!removing) {
+            setRemoveDialogOpen(open);
+          }
+        }}
+      >
+        <DialogContent
+          onPointerDownOutside={(e) => {
+            // Prevenir cierre al hacer clic fuera mientras elimina
+            if (removing) e.preventDefault();
+          }}
+          onEscapeKeyDown={(e) => {
+            // Prevenir cierre con Escape mientras elimina
+            if (removing) e.preventDefault();
+          }}
+        >
           <DialogHeader>
             <DialogTitle>Remove Movie?</DialogTitle>
             <DialogDescription>
@@ -439,7 +495,14 @@ export function ProposedMovies({
               onClick={confirmRemoveMovie}
               disabled={removing === movieToRemove?.id}
             >
-              {removing === movieToRemove?.id ? "Removing..." : "Remove"}
+              {removing === movieToRemove?.id ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Removing...
+                </>
+              ) : (
+                "Remove"
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>

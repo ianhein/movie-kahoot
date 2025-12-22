@@ -192,3 +192,77 @@ export async function getRoomMembers(roomId: string) {
     return { error: "Failed to load members" };
   }
 }
+
+export async function resetRoomToVoting(roomId: string) {
+  try {
+    const supabase = createAdminClient();
+
+    // Reset room status to voting
+    const { error: statusError } = await supabase
+      .from("rooms")
+      .update({ status: "voting" })
+      .eq("id", roomId);
+
+    if (statusError) {
+      return { error: "Failed to reset room status" };
+    }
+
+    // Reset all room_movies accepted status
+    const { error: moviesError } = await supabase
+      .from("room_movies")
+      .update({ accepted: false })
+      .eq("room_id", roomId);
+
+    if (moviesError) {
+      console.error("Failed to reset movies:", moviesError);
+    }
+
+    // Delete quiz questions for this room (answers are deleted automatically via CASCADE)
+    const { error: questionsError } = await supabase
+      .from("questions")
+      .delete()
+      .eq("room_id", roomId);
+
+    if (questionsError) {
+      console.error("Failed to delete quiz questions:", questionsError);
+    }
+
+    return { success: true };
+  } catch (error) {
+    return { error: "Failed to reset room" };
+  }
+}
+
+export async function getWinningMovie(roomId: string) {
+  try {
+    const supabase = createAdminClient();
+
+    // Get the movie that was selected for the quiz
+    const { data: roomMovie, error } = await supabase
+      .from("room_movies")
+      .select(
+        `
+        id,
+        movie_id,
+        movies (
+          id,
+          title,
+          year,
+          poster_url,
+          overview
+        )
+      `
+      )
+      .eq("room_id", roomId)
+      .eq("accepted", true)
+      .single();
+
+    if (error || !roomMovie) {
+      return { movie: null };
+    }
+
+    return { movie: roomMovie.movies };
+  } catch (error) {
+    return { movie: null };
+  }
+}
