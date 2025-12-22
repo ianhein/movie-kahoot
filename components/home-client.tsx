@@ -13,7 +13,8 @@ import {
 } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { createRoom, joinRoom } from "@/app/actions/room-actions";
-import { Film, Users } from "lucide-react";
+import { testConnection } from "@/app/actions/test-connection";
+import { Film, Users, TestTube } from "lucide-react";
 import { toast } from "sonner";
 
 export function HomeClient() {
@@ -22,6 +23,24 @@ export function HomeClient() {
   const [createName, setCreateName] = useState("");
   const [joinName, setJoinName] = useState("");
   const [roomCode, setRoomCode] = useState("");
+
+  const handleTestConnection = async () => {
+    setIsLoading(true);
+    try {
+      const result = await testConnection();
+      if (result.success) {
+        toast.success(result.message);
+      } else {
+        toast.error(`Connection failed: ${result.error}`);
+        console.error("Connection test details:", result.details);
+      }
+    } catch (error) {
+      toast.error("Test failed");
+      console.error(error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const handleCreateRoom = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -33,6 +52,8 @@ export function HomeClient() {
     setIsLoading(true);
     try {
       const result = await createRoom(createName);
+      console.log("Create room result:", result);
+
       if (result.error) {
         toast.error(result.error);
       } else if (result.success) {
@@ -42,7 +63,7 @@ export function HomeClient() {
         toast.success(`Room created! Code: ${result.roomCode}`);
         router.push(`/room/${result.roomId}`);
       }
-    } catch (error) {
+    } catch {
       toast.error("Failed to create room");
     } finally {
       setIsLoading(false);
@@ -68,7 +89,7 @@ export function HomeClient() {
         toast.success("Joined room successfully!");
         router.push(`/room/${result.roomId}`);
       }
-    } catch (error) {
+    } catch {
       toast.error("Failed to join room");
     } finally {
       setIsLoading(false);
@@ -88,6 +109,15 @@ export function HomeClient() {
           <p className="text-muted-foreground">
             Watch movies with friends and compete with fun quizzes!
           </p>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleTestConnection}
+            disabled={isLoading}
+          >
+            <TestTube className="w-4 h-4 mr-2" />
+            Test Connection
+          </Button>
         </div>
 
         <Tabs defaultValue="create" className="w-full">
