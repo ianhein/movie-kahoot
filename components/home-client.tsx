@@ -113,7 +113,7 @@ export function HomeClient() {
             </div>
           </div>
           <h1 className="text-3xl md:text-4xl font-bold tracking-tight">
-            Movie Kahoot
+            Kahoovie
           </h1>
           <p className="text-sm md:text-base text-muted-foreground px-4">
             Watch movies with friends and compete with fun quizzes!
@@ -153,7 +153,7 @@ export function HomeClient() {
                   Create a New Room
                 </CardTitle>
                 <CardDescription className="text-sm">
-                  Start a movie night and invite your friends
+                  Start a Kahoovie night and invite your friends
                 </CardDescription>
               </CardHeader>
               <CardContent className="p-4 md:p-6 pt-0">

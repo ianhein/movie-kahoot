@@ -279,7 +279,7 @@ export function RoomClient({
                 </div>
                 <div className="min-w-0">
                   <CardTitle className="text-lg md:text-2xl truncate">
-                    Movie Night
+                    Kahoovie
                   </CardTitle>
                   <div className="flex items-center gap-1.5 md:gap-2 mt-1 flex-wrap">
                     <Badge
