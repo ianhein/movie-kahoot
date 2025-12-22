@@ -6,17 +6,7 @@ import { createClient } from "@/lib/supabase/client";
 import { QuizHost } from "./quiz-host";
 import { QuizPlayer } from "./quiz-player";
 import { QuizResults } from "./quiz-results";
-import type { Database } from "@/lib/supabase/database.types";
-
-type Room = Database["public"]["Tables"]["rooms"]["Row"];
-type Member = {
-  user_id: string;
-  joined_at: string;
-  users: {
-    id: string;
-    name: string;
-  } | null;
-};
+import type { Room, Member } from "@/lib/types";
 
 interface QuizClientProps {
   roomId: string;
@@ -31,21 +21,25 @@ export function QuizClient({
 }: QuizClientProps) {
   const router = useRouter();
   const [room, setRoom] = useState(initialRoom);
-  const [members, setMembers] = useState(initialMembers);
-  const [userId, setUserId] = useState<string | null>(null);
-  const [userName, setUserName] = useState<string | null>(null);
+  const [members] = useState(initialMembers);
+  const [userId] = useState<string | null>(() => {
+    if (typeof window !== "undefined") {
+      return localStorage.getItem("userId");
+    }
+    return null;
+  });
+  const [userName] = useState<string | null>(() => {
+    if (typeof window !== "undefined") {
+      return localStorage.getItem("userName");
+    }
+    return null;
+  });
 
   useEffect(() => {
-    const storedUserId = localStorage.getItem("userId");
-    const storedUserName = localStorage.getItem("userName");
-
-    if (!storedUserId) {
+    if (!userId) {
       router.push("/");
       return;
     }
-
-    setUserId(storedUserId);
-    setUserName(storedUserName);
 
     // Suscribirse a cambios en la sala
     const supabase = createClient();
@@ -71,7 +65,7 @@ export function QuizClient({
     return () => {
       supabase.removeChannel(roomChannel);
     };
-  }, [roomId, router]);
+  }, [roomId, router, userId]);
 
   if (!userId) {
     return null;

@@ -5,40 +5,92 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Trash2, Users, Trophy } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Plus, Trash2, Users, Trophy, Send, Check } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
-import { createQuestion, finishQuiz } from "@/app/actions/quiz-actions";
+import {
+  createQuestion,
+  finishQuiz,
+  publishQuestions,
+  getAllQuestions,
+  getQuestionAnswers,
+} from "@/app/actions/quiz-actions";
 import { toast } from "sonner";
-import type { Database } from "@/lib/supabase/database.types";
-
-type Room = Database["public"]["Tables"]["rooms"]["Row"];
-type Member = {
-  user_id: string;
-  users: { name: string } | null;
-};
+import type { Room, QuizMember, Question, Answer } from "@/lib/types";
 
 interface QuizHostProps {
   roomId: string;
   room: Room;
-  members: Member[];
+  members: QuizMember[];
   userId: string;
   userName: string | null;
 }
 
-export function QuizHost({ roomId, room, members }: QuizHostProps) {
+export function QuizHost({
+  roomId,
+  members,
+  room: initialRoom,
+}: QuizHostProps) {
   const [questionText, setQuestionText] = useState("");
   const [options, setOptions] = useState(["", "", "", ""]);
   const [correctIndex, setCorrectIndex] = useState(0);
   const [duration, setDuration] = useState(20);
   const [isCreating, setIsCreating] = useState(false);
+  const [isPublishing, setIsPublishing] = useState(false);
   const [isFinishing, setIsFinishing] = useState(false);
-  const [questions, setQuestions] = useState<any[]>([]);
-  const [currentQuestion, setCurrentQuestion] = useState<any>(null);
+  const [questions, setQuestions] = useState<Question[]>([]);
+  const [arePublished, setArePublished] = useState(false);
+  const [questionAnswers, setQuestionAnswers] = useState<
+    Record<string, Answer[]>
+  >({});
+  const [room, setRoom] = useState(initialRoom);
+  const [showFinishDialog, setShowFinishDialog] = useState(false);
 
+  // Cargar preguntas existentes
   useEffect(() => {
+    const loadQuestions = async () => {
+      const result = await getAllQuestions(roomId);
+      if (result.questions) {
+        setQuestions(result.questions as unknown as Question[]);
+        const firstQuestion = result.questions[0] as Question | undefined;
+        setArePublished(
+          result.questions.length > 0 && firstQuestion?.published === true
+        );
+      }
+    };
+
+    loadQuestions();
+
     const supabase = createClient();
 
-    const channel = supabase
+    // Escuchar cambios en el room
+    const roomChannel = supabase
+      .channel(`room-status:${roomId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "rooms",
+          filter: `id=eq.${roomId}`,
+        },
+        (payload) => {
+          if (payload.new) {
+            setRoom(payload.new as Room);
+          }
+        }
+      )
+      .subscribe();
+
+    // Escuchar cambios en preguntas
+    const questionsChannel = supabase
       .channel(`questions:${roomId}`)
       .on(
         "postgres_changes",
@@ -48,19 +100,74 @@ export function QuizHost({ roomId, room, members }: QuizHostProps) {
           table: "questions",
           filter: `room_id=eq.${roomId}`,
         },
-        (payload) => {
-          if (payload.new) {
-            setQuestions((prev) => [...prev, payload.new]);
-            setCurrentQuestion(payload.new);
-          }
+        () => {
+          loadQuestions();
+        }
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "questions",
+          filter: `room_id=eq.${roomId}`,
+        },
+        () => {
+          loadQuestions();
         }
       )
       .subscribe();
 
     return () => {
-      supabase.removeChannel(channel);
+      supabase.removeChannel(roomChannel);
+      supabase.removeChannel(questionsChannel);
     };
   }, [roomId]);
+
+  // Cargar respuestas cuando las preguntas están publicadas
+  useEffect(() => {
+    if (!arePublished || questions.length === 0) return;
+
+    const loadAnswers = async () => {
+      const answersData: Record<string, Answer[]> = {};
+
+      for (const question of questions) {
+        const result = await getQuestionAnswers(question.id);
+        if (result.answers) {
+          answersData[question.id] = result.answers;
+        }
+      }
+
+      setQuestionAnswers(answersData);
+    };
+
+    loadAnswers();
+
+    // Escuchar nuevas respuestas en tiempo real
+    const supabase = createClient();
+    const channel = supabase
+      .channel(`answers:${roomId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "answers",
+        },
+        () => {
+          loadAnswers();
+        }
+      )
+      .subscribe();
+
+    // Polling cada 5 segundos como respaldo
+    const interval = setInterval(loadAnswers, 5000);
+
+    return () => {
+      supabase.removeChannel(channel);
+      clearInterval(interval);
+    };
+  }, [arePublished, questions, roomId]);
 
   const handleAddOption = () => {
     if (options.length < 6) {
@@ -95,6 +202,11 @@ export function QuizHost({ roomId, room, members }: QuizHostProps) {
       return;
     }
 
+    if (questions.length >= 15) {
+      toast.error("Maximum of 15 questions reached");
+      return;
+    }
+
     setIsCreating(true);
     try {
       const result = await createQuestion(
@@ -108,24 +220,47 @@ export function QuizHost({ roomId, room, members }: QuizHostProps) {
       if (result.error) {
         toast.error(result.error);
       } else {
-        toast.success("Question created!");
+        toast.success("Question added!");
         setQuestionText("");
         setOptions(["", "", "", ""]);
         setCorrectIndex(0);
       }
-    } catch (error) {
+    } catch {
       toast.error("Failed to create question");
     } finally {
       setIsCreating(false);
     }
   };
 
-  const handleFinishQuiz = async () => {
+  const handlePublishQuestions = async () => {
     if (questions.length === 0) {
       toast.error("Create at least one question first");
       return;
     }
 
+    setIsPublishing(true);
+    try {
+      const result = await publishQuestions(roomId);
+      if (result.error) {
+        toast.error(result.error);
+      } else {
+        toast.success("Questions published! Players can now answer.");
+        setArePublished(true);
+      }
+    } catch {
+      toast.error("Failed to publish questions");
+    } finally {
+      setIsPublishing(false);
+    }
+  };
+
+  const handleFinishQuiz = async () => {
+    if (!arePublished) {
+      toast.error("Publish questions first");
+      return;
+    }
+
+    setShowFinishDialog(false);
     setIsFinishing(true);
     try {
       const result = await finishQuiz(roomId);
@@ -134,7 +269,7 @@ export function QuizHost({ roomId, room, members }: QuizHostProps) {
       } else {
         toast.success("Quiz finished! Showing results...");
       }
-    } catch (error) {
+    } catch {
       toast.error("Failed to finish quiz");
     } finally {
       setIsFinishing(false);
@@ -146,142 +281,268 @@ export function QuizHost({ roomId, room, members }: QuizHostProps) {
       <div className="max-w-4xl mx-auto space-y-4">
         <Card>
           <CardHeader>
-            <div className="flex items-center justify-between">
-              <div>
-                <CardTitle className="text-2xl">Quiz Host Panel</CardTitle>
-                <div className="flex items-center gap-2 mt-2">
-                  <Badge variant="secondary" className="gap-1">
-                    <Users className="w-3 h-3" />
-                    {members.length} players
-                  </Badge>
-                  <Badge variant="secondary">
-                    {questions.length} questions created
-                  </Badge>
+            <div className="flex flex-col gap-4">
+              <div className="flex items-start justify-between gap-4">
+                <div className="flex-1 min-w-0">
+                  <CardTitle className="text-2xl mb-2">
+                    Quiz Host Panel
+                  </CardTitle>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge variant="secondary" className="gap-1">
+                      <Users className="w-3 h-3" />
+                      {members.length} players
+                    </Badge>
+                    <Badge variant="secondary">
+                      {questions.length}/15 questions
+                    </Badge>
+                    {arePublished && (
+                      <Badge variant="default" className="gap-1">
+                        <Check className="w-3 h-3" />
+                        Published
+                      </Badge>
+                    )}
+                  </div>
                 </div>
-              </div>
-              <Button
-                variant="default"
-                onClick={handleFinishQuiz}
-                disabled={isFinishing || questions.length === 0}
-              >
-                <Trophy className="w-4 h-4 mr-2" />
-                {isFinishing ? "Finishing..." : "Finish Quiz"}
-              </Button>
-            </div>
-          </CardHeader>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Create New Question</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Question</label>
-              <Input
-                placeholder="What happened in this scene?"
-                value={questionText}
-                onChange={(e) => setQuestionText(e.target.value)}
-                disabled={isCreating}
-              />
-            </div>
-
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Options</label>
-              {options.map((option, index) => (
-                <div key={index} className="flex gap-2">
-                  <Input
-                    placeholder={`Option ${index + 1}`}
-                    value={option}
-                    onChange={(e) => handleOptionChange(index, e.target.value)}
-                    disabled={isCreating}
-                  />
-                  <Button
-                    variant={correctIndex === index ? "default" : "outline"}
-                    onClick={() => setCorrectIndex(index)}
-                    disabled={isCreating}
-                  >
-                    {correctIndex === index ? "✓ Correct" : "Mark Correct"}
-                  </Button>
-                  {options.length > 2 && (
+                <div className="flex flex-col sm:flex-row gap-2 shrink-0">
+                  {!arePublished && questions.length > 0 && (
                     <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => handleRemoveOption(index)}
-                      disabled={isCreating}
+                      variant="default"
+                      onClick={handlePublishQuestions}
+                      disabled={isPublishing}
+                      className="whitespace-nowrap"
                     >
-                      <Trash2 className="w-4 h-4" />
+                      <Send className="w-4 h-4 mr-2" />
+                      {isPublishing ? "Publishing..." : "Publish Quiz"}
+                    </Button>
+                  )}
+                  {arePublished && room.status !== "finished" && (
+                    <Button
+                      variant="default"
+                      onClick={() => setShowFinishDialog(true)}
+                      disabled={isFinishing}
+                      className="whitespace-nowrap"
+                    >
+                      <Trophy className="w-4 h-4 mr-2" />
+                      {isFinishing ? "Finishing..." : "Finish Quiz"}
                     </Button>
                   )}
                 </div>
-              ))}
-              {options.length < 6 && (
-                <Button
-                  variant="outline"
-                  onClick={handleAddOption}
-                  disabled={isCreating}
-                >
-                  <Plus className="w-4 h-4 mr-2" />
-                  Add Option
-                </Button>
-              )}
+              </div>
             </div>
-
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Duration (seconds)</label>
-              <Input
-                type="number"
-                min={5}
-                max={60}
-                value={duration}
-                onChange={(e) => setDuration(parseInt(e.target.value))}
-                disabled={isCreating}
-              />
-            </div>
-
-            <Button
-              className="w-full"
-              onClick={handleCreateQuestion}
-              disabled={isCreating}
-            >
-              {isCreating ? "Creating..." : "Create Question"}
-            </Button>
-          </CardContent>
+          </CardHeader>
         </Card>
 
-        {currentQuestion && (
-          <Card className="border-2 border-purple-500">
+        {!arePublished && (
+          <Card>
             <CardHeader>
-              <CardTitle>Current Question</CardTitle>
+              <CardTitle>Create Question {questions.length + 1}</CardTitle>
             </CardHeader>
-            <CardContent>
-              <p className="text-lg font-semibold mb-4">
-                {currentQuestion.text}
-              </p>
-              <div className="grid grid-cols-2 gap-2">
-                {currentQuestion.options.map(
-                  (option: string, index: number) => (
-                    <div
-                      key={index}
-                      className={`p-3 rounded-lg border-2 ${
-                        index === currentQuestion.correct_index
-                          ? "border-green-500 bg-green-50 dark:bg-green-900/20"
-                          : "border-gray-200 dark:border-gray-700"
-                      }`}
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Question</label>
+                <Input
+                  placeholder="What happened in this scene?"
+                  value={questionText}
+                  onChange={(e) => setQuestionText(e.target.value)}
+                  disabled={isCreating || questions.length >= 15}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Options</label>
+                {options.map((option, index) => (
+                  <div key={index} className="flex gap-2">
+                    <Input
+                      placeholder={`Option ${index + 1}`}
+                      value={option}
+                      onChange={(e) =>
+                        handleOptionChange(index, e.target.value)
+                      }
+                      disabled={isCreating || questions.length >= 15}
+                    />
+                    <Button
+                      variant={correctIndex === index ? "default" : "outline"}
+                      onClick={() => setCorrectIndex(index)}
+                      disabled={isCreating || questions.length >= 15}
+                      className="min-w-[120px]"
                     >
-                      {option}
-                    </div>
-                  )
+                      {correctIndex === index ? "✓ Correct" : "Mark Correct"}
+                    </Button>
+                    {options.length > 2 && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => handleRemoveOption(index)}
+                        disabled={isCreating || questions.length >= 15}
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </Button>
+                    )}
+                  </div>
+                ))}
+                {options.length < 6 && (
+                  <Button
+                    variant="outline"
+                    onClick={handleAddOption}
+                    disabled={isCreating || questions.length >= 15}
+                  >
+                    <Plus className="w-4 h-4 mr-2" />
+                    Add Option
+                  </Button>
                 )}
               </div>
-              <p className="text-sm text-muted-foreground mt-4">
-                Players have {currentQuestion.duration_seconds} seconds to
-                answer
-              </p>
+
+              <div className="space-y-2">
+                <label className="text-sm font-medium">
+                  Duration (seconds)
+                </label>
+                <Input
+                  type="number"
+                  min={5}
+                  max={60}
+                  value={duration}
+                  onChange={(e) => setDuration(parseInt(e.target.value))}
+                  disabled={isCreating || questions.length >= 15}
+                />
+              </div>
+
+              <Button
+                className="w-full"
+                onClick={handleCreateQuestion}
+                disabled={isCreating || questions.length >= 15}
+              >
+                <Plus className="w-4 h-4 mr-2" />
+                {isCreating
+                  ? "Creating..."
+                  : questions.length >= 15
+                    ? "Maximum questions reached"
+                    : "Add Question"}
+              </Button>
+            </CardContent>
+          </Card>
+        )}
+
+        {questions.length > 0 && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Questions Created ({questions.length})</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {questions.map((q, index) => {
+                const answers = questionAnswers[q.id] || [];
+                const correctAnswers = answers.filter((a) => a.is_correct);
+                const wrongAnswers = answers.filter((a) => !a.is_correct);
+
+                return (
+                  <Card key={q.id} className="border">
+                    <CardContent className="p-4">
+                      <div className="flex items-start justify-between mb-2">
+                        <Badge variant="outline">Question {index + 1}</Badge>
+                        <div className="flex gap-2">
+                          <Badge variant="secondary">
+                            {q.duration_seconds}s
+                          </Badge>
+                          {arePublished && (
+                            <Badge variant="outline">
+                              {answers.length}/{members.length} answered
+                            </Badge>
+                          )}
+                        </div>
+                      </div>
+                      <p className="font-semibold mb-2">{q.text}</p>
+                      <div className="grid grid-cols-2 gap-2 mb-3">
+                        {q.options.map((option, optIndex) => (
+                          <div
+                            key={optIndex}
+                            className={`p-2 rounded text-sm ${
+                              optIndex === q.correct_index
+                                ? "bg-green-100 dark:bg-green-900/30 border border-green-300"
+                                : "bg-gray-100 dark:bg-gray-800"
+                            }`}
+                          >
+                            {option}
+                          </div>
+                        ))}
+                      </div>
+
+                      {arePublished && answers.length > 0 && (
+                        <div className="mt-3 pt-3 border-t space-y-2">
+                          <div className="text-sm font-medium">Answers:</div>
+
+                          {correctAnswers.length > 0 && (
+                            <div className="space-y-1">
+                              <div className="text-xs font-semibold text-green-600 dark:text-green-400">
+                                ✓ Correct ({correctAnswers.length}):
+                              </div>
+                              <div className="flex flex-wrap gap-1">
+                                {correctAnswers.map((answer) => (
+                                  <Badge
+                                    key={answer.user_id}
+                                    variant="outline"
+                                    className="bg-green-50 dark:bg-green-900/20 border-green-300"
+                                  >
+                                    {answer.user_name}
+                                  </Badge>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
+                          {wrongAnswers.length > 0 && (
+                            <div className="space-y-1">
+                              <div className="text-xs font-semibold text-red-600 dark:text-red-400">
+                                ✗ Wrong ({wrongAnswers.length}):
+                              </div>
+                              <div className="flex flex-wrap gap-1">
+                                {wrongAnswers.map((answer) => (
+                                  <Badge
+                                    key={answer.user_id}
+                                    variant="outline"
+                                    className="bg-red-50 dark:bg-red-900/20 border-red-300"
+                                  >
+                                    {answer.user_name}
+                                  </Badge>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                );
+              })}
             </CardContent>
           </Card>
         )}
       </div>
+
+      <Dialog open={showFinishDialog} onOpenChange={setShowFinishDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Finish Quiz?</DialogTitle>
+            <DialogDescription>
+              This will end the quiz and show the final results to all players.
+              Players will no longer be able to answer questions.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setShowFinishDialog(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="default"
+              onClick={handleFinishQuiz}
+              disabled={isFinishing}
+            >
+              {isFinishing ? "Finishing..." : "Finish Quiz"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

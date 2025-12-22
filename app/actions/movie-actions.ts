@@ -1,24 +1,27 @@
 "use server";
 
 import { createAdminClient } from "@/lib/supabase/admin";
+import { updateTag, unstable_cache } from "next/cache";
 
 export async function getRoomDetails(roomId: string) {
-  const supabase = createAdminClient();
+  return unstable_cache(
+    async () => {
+      const supabase = createAdminClient();
 
-  const { data: room, error: roomError } = await supabase
-    .from("rooms")
-    .select("*")
-    .eq("id", roomId)
-    .single();
+      const { data: room, error: roomError } = await supabase
+        .from("rooms")
+        .select("*")
+        .eq("id", roomId)
+        .single();
 
-  if (roomError || !room) {
-    return { error: "Room not found" };
-  }
+      if (roomError || !room) {
+        return { error: "Room not found" };
+      }
 
-  const { data: members, error: membersError } = await supabase
-    .from("room_members")
-    .select(
-      `
+      const { data: members, error: membersError } = await supabase
+        .from("room_members")
+        .select(
+          `
       user_id,
       joined_at,
       users (
@@ -26,18 +29,25 @@ export async function getRoomDetails(roomId: string) {
         name
       )
     `
-    )
-    .eq("room_id", roomId);
+        )
+        .eq("room_id", roomId);
 
-  if (membersError) {
-    return { error: "Failed to load members" };
-  }
+      if (membersError) {
+        return { error: "Failed to load members" };
+      }
 
-  return {
-    room,
-    members: members || [],
-    isHost: false, // Se actualizará en el cliente con el userId
-  };
+      return {
+        room,
+        members: members || [],
+        isHost: false, // Se actualizará en el cliente con el userId
+      };
+    },
+    [`room-${roomId}`],
+    {
+      tags: [`room-${roomId}`, `room-members-${roomId}`],
+      revalidate: 10, // Cache por 10 segundos
+    }
+  )();
 }
 
 export async function proposeMovie(
@@ -80,6 +90,9 @@ export async function proposeMovie(
     return { error: "Failed to propose movie" };
   }
 
+  // Revalidar cache de películas de la sala
+  updateTag(`room-movies-${roomId}`);
+
   return { success: true, roomMovie };
 }
 
@@ -100,16 +113,29 @@ export async function voteForMovie(
     return { error: "Failed to vote" };
   }
 
+  // Obtener room_id para revalidar
+  const { data: roomMovie } = await supabase
+    .from("room_movies")
+    .select("room_id")
+    .eq("id", roomMovieId)
+    .single();
+
+  if (roomMovie) {
+    updateTag(`room-movies-${roomMovie.room_id}`);
+  }
+
   return { success: true };
 }
 
 export async function getProposedMovies(roomId: string) {
-  const supabase = createAdminClient();
+  return unstable_cache(
+    async () => {
+      const supabase = createAdminClient();
 
-  const { data: roomMovies, error } = await supabase
-    .from("room_movies")
-    .select(
-      `
+      const { data: roomMovies, error } = await supabase
+        .from("room_movies")
+        .select(
+          `
       id,
       movie_id,
       proposed_by,
@@ -127,15 +153,22 @@ export async function getProposedMovies(roomId: string) {
         vote
       )
     `
-    )
-    .eq("room_id", roomId)
-    .order("created_at", { ascending: false });
+        )
+        .eq("room_id", roomId)
+        .order("created_at", { ascending: false });
 
-  if (error) {
-    return { error: "Failed to load movies" };
-  }
+      if (error) {
+        return { error: "Failed to load movies" };
+      }
 
-  return { movies: roomMovies || [] };
+      return { movies: roomMovies || [] };
+    },
+    [`room-movies-${roomId}`],
+    {
+      tags: [`room-movies-${roomId}`],
+      revalidate: 5, // Cache por 5 segundos
+    }
+  )();
 }
 
 export async function selectMovie(roomId: string, roomMovieId: string) {
@@ -161,6 +194,10 @@ export async function selectMovie(roomId: string, roomMovieId: string) {
   if (statusError) {
     return { error: "Failed to update room status" };
   }
+
+  // Revalidar todos los caches relacionados
+  updateTag(`room-${roomId}`);
+  updateTag(`room-movies-${roomId}`);
 
   return { success: true };
 }

@@ -51,6 +51,8 @@ create table questions (
   options text[] not null,
   correct_index int not null,
   duration_seconds int default 20,
+  published boolean default false,
+  question_order int,
   created_at timestamptz default now()
 );
 

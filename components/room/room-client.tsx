@@ -10,17 +10,8 @@ import { Users, Film, LogOut, Crown } from "lucide-react";
 import { MovieSearch } from "./movie-search";
 import { ProposedMovies } from "./proposed-movies";
 import { toast } from "sonner";
-import type { Database } from "@/lib/supabase/database.types";
-
-type Room = Database["public"]["Tables"]["rooms"]["Row"];
-type Member = {
-  user_id: string;
-  joined_at: string;
-  users: {
-    id: string;
-    name: string;
-  } | null;
-};
+import type { Room, Member } from "@/lib/types";
+import { getRoomStatus, getRoomMembers } from "@/app/actions/room-actions";
 
 interface RoomClientProps {
   roomId: string;
@@ -38,21 +29,51 @@ export function RoomClient({
   const [members, setMembers] = useState(initialMembers);
   const [copied, setCopied] = useState(false);
   const [movieRefreshKey, setMovieRefreshKey] = useState(0);
+  const [userId, setUserId] = useState<string | null>(() => {
+    if (typeof window !== "undefined") {
+      return localStorage.getItem("userId");
+    }
+    return null;
+  });
 
-  // Obtener userId del localStorage de forma segura
-  const userId =
-    typeof window !== "undefined" ? localStorage.getItem("userId") : null;
-
+  // Redirigir si no hay userId
   useEffect(() => {
-    // Validar userId
     if (!userId) {
       router.push("/");
-      return;
     }
+  }, [router, userId]);
 
-    // Suscribirse a cambios en la sala
+  // Setup de polling y subscriptions
+  useEffect(() => {
+    if (!userId) return;
+
     const supabase = createClient();
 
+    // Función para recargar miembros usando server action
+    const loadMembers = async () => {
+      const result = await getRoomMembers(roomId);
+      if ("members" in result) {
+        setMembers(result.members as Member[]);
+      }
+    };
+
+    // Función para verificar cambio de estado usando server action
+    const checkRoomStatus = async () => {
+      const result = await getRoomStatus(roomId);
+      if ("status" in result && result.status === "quiz") {
+        router.push(`/room/${roomId}/quiz`);
+      }
+    };
+
+    // Cargar miembros inicialmente
+    loadMembers();
+
+    // Polling menos frecuente - confiar en Realtime para actualizaciones instantáneas
+    // Members: cada 10s, Status: cada 5s
+    const membersPollingInterval = setInterval(loadMembers, 10000);
+    const statusPollingInterval = setInterval(checkRoomStatus, 5000);
+
+    // Suscribirse a cambios en la sala (funciona si Realtime está habilitado)
     const roomChannel = supabase
       .channel(`room:${roomId}`)
       .on(
@@ -82,36 +103,18 @@ export function RoomClient({
           table: "room_members",
           filter: `room_id=eq.${roomId}`,
         },
-        async () => {
-          // Recargar miembros sin la relación compleja
-          const { data } = await supabase
-            .from("room_members")
-            .select("user_id, joined_at")
-            .eq("room_id", roomId);
-
-          if (data) {
-            // Obtener nombres de usuarios por separado
-            const userIds = data.map((m) => m.user_id);
-            const { data: users } = await supabase
-              .from("users")
-              .select("id, name")
-              .in("id", userIds);
-
-            const membersWithUsers = data.map((member) => ({
-              ...member,
-              users: users?.find((u) => u.id === member.user_id) || null,
-            }));
-
-            setMembers(membersWithUsers as any);
-          }
+        () => {
+          loadMembers();
         }
       )
       .subscribe();
 
     return () => {
+      clearInterval(membersPollingInterval);
+      clearInterval(statusPollingInterval);
       supabase.removeChannel(roomChannel);
     };
-  }, [roomId, router]);
+  }, [roomId, router, userId]);
 
   const isHost = userId === room.host_id;
 
@@ -133,6 +136,7 @@ export function RoomClient({
     setMovieRefreshKey((prev) => prev + 1);
   };
 
+  // Redirigir si no hay userId
   if (!userId) {
     return null;
   }

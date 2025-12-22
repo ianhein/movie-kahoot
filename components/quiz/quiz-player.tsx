@@ -7,11 +7,12 @@ import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { Clock, CheckCircle, XCircle } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
-import { submitAnswer } from "@/app/actions/quiz-actions";
+import {
+  submitAnswer,
+  getPublishedQuestions,
+} from "@/app/actions/quiz-actions";
 import { toast } from "sonner";
-import type { Database } from "@/lib/supabase/database.types";
-
-type Room = Database["public"]["Tables"]["rooms"]["Row"];
+import type { Room, Question } from "@/lib/types";
 
 interface QuizPlayerProps {
   roomId: string;
@@ -20,17 +21,9 @@ interface QuizPlayerProps {
   userName: string | null;
 }
 
-type Question = {
-  id: string;
-  text: string;
-  options: string[];
-  correct_index: number;
-  duration_seconds: number;
-  created_at: string;
-};
-
 export function QuizPlayer({ roomId, userId }: QuizPlayerProps) {
-  const [currentQuestion, setCurrentQuestion] = useState<Question | null>(null);
+  const [allQuestions, setAllQuestions] = useState<Question[]>([]);
+  const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [selectedOption, setSelectedOption] = useState<number | null>(null);
   const [hasAnswered, setHasAnswered] = useState(false);
   const [timeLeft, setTimeLeft] = useState(0);
@@ -40,25 +33,37 @@ export function QuizPlayer({ roomId, userId }: QuizPlayerProps) {
   useEffect(() => {
     const supabase = createClient();
 
+    // Cargar todas las preguntas publicadas
+    const loadQuestions = async () => {
+      const result = await getPublishedQuestions(roomId);
+      if (result.questions && result.questions.length > 0) {
+        const sortedQuestions = (result.questions as Question[]).sort(
+          (a, b) => (a.question_order ?? 0) - (b.question_order ?? 0)
+        );
+        setAllQuestions(sortedQuestions);
+        setCurrentQuestionIndex(0);
+        setTimeLeft(sortedQuestions[0].duration_seconds);
+        setHasAnswered(false);
+        setSelectedOption(null);
+        setShowResult(false);
+      }
+    };
+
+    loadQuestions();
+
+    // Escuchar cuando las preguntas se publican
     const channel = supabase
       .channel(`player:${roomId}:${userId}`)
       .on(
         "postgres_changes",
         {
-          event: "INSERT",
+          event: "UPDATE",
           schema: "public",
           table: "questions",
           filter: `room_id=eq.${roomId}`,
         },
-        (payload) => {
-          if (payload.new) {
-            const question = payload.new as Question;
-            setCurrentQuestion(question);
-            setTimeLeft(question.duration_seconds);
-            setHasAnswered(false);
-            setSelectedOption(null);
-            setShowResult(false);
-          }
+        () => {
+          loadQuestions();
         }
       )
       .subscribe();
@@ -74,16 +79,29 @@ export function QuizPlayer({ roomId, userId }: QuizPlayerProps) {
         setTimeLeft(timeLeft - 1);
       }, 1000);
       return () => clearTimeout(timer);
-    } else if (timeLeft === 0 && currentQuestion && !hasAnswered) {
+    } else if (timeLeft === 0 && allQuestions.length > 0 && !hasAnswered) {
       // Tiempo agotado
       toast.error("Time's up!");
       setShowResult(true);
+
+      // Avanzar a la siguiente pregunta después de 3 segundos
+      setTimeout(() => {
+        if (currentQuestionIndex < allQuestions.length - 1) {
+          const nextIndex = currentQuestionIndex + 1;
+          setCurrentQuestionIndex(nextIndex);
+          setTimeLeft(allQuestions[nextIndex].duration_seconds);
+          setHasAnswered(false);
+          setSelectedOption(null);
+          setShowResult(false);
+        }
+      }, 3000);
     }
-  }, [timeLeft, hasAnswered, currentQuestion]);
+  }, [timeLeft, hasAnswered, allQuestions, currentQuestionIndex]);
 
   const handleSelectOption = async (index: number) => {
-    if (hasAnswered || !currentQuestion) return;
+    if (hasAnswered || allQuestions.length === 0) return;
 
+    const currentQuestion = allQuestions[currentQuestionIndex];
     setSelectedOption(index);
     setIsSubmitting(true);
 
@@ -102,8 +120,20 @@ export function QuizPlayer({ roomId, userId }: QuizPlayerProps) {
         } else {
           toast.error("Wrong answer");
         }
+
+        // Avanzar a la siguiente pregunta después de 3 segundos
+        setTimeout(() => {
+          if (currentQuestionIndex < allQuestions.length - 1) {
+            const nextIndex = currentQuestionIndex + 1;
+            setCurrentQuestionIndex(nextIndex);
+            setTimeLeft(allQuestions[nextIndex].duration_seconds);
+            setHasAnswered(false);
+            setSelectedOption(null);
+            setShowResult(false);
+          }
+        }, 3000);
       }
-    } catch (error) {
+    } catch {
       toast.error("Failed to submit answer");
       setSelectedOption(null);
     } finally {
@@ -118,6 +148,7 @@ export function QuizPlayer({ roomId, userId }: QuizPlayerProps) {
         : "border-gray-200 dark:border-gray-700 hover:border-purple-300";
     }
 
+    const currentQuestion = allQuestions[currentQuestionIndex];
     if (index === currentQuestion?.correct_index) {
       return "border-green-500 bg-green-50 dark:bg-green-900/20";
     }
@@ -129,7 +160,7 @@ export function QuizPlayer({ roomId, userId }: QuizPlayerProps) {
     return "border-gray-200 dark:border-gray-700 opacity-50";
   };
 
-  if (!currentQuestion) {
+  if (allQuestions.length === 0) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-purple-50 via-white to-blue-50 dark:from-gray-900 dark:via-black dark:to-gray-900 flex items-center justify-center p-4">
         <Card className="max-w-md w-full">
@@ -147,6 +178,7 @@ export function QuizPlayer({ roomId, userId }: QuizPlayerProps) {
     );
   }
 
+  const currentQuestion = allQuestions[currentQuestionIndex];
   const progress = (timeLeft / currentQuestion.duration_seconds) * 100;
 
   return (
@@ -154,10 +186,15 @@ export function QuizPlayer({ roomId, userId }: QuizPlayerProps) {
       <Card className="max-w-2xl w-full">
         <CardHeader>
           <div className="flex items-center justify-between mb-4">
-            <Badge variant="secondary" className="gap-2">
-              <Clock className="w-4 h-4" />
-              {timeLeft}s
-            </Badge>
+            <div className="flex items-center gap-2">
+              <Badge variant="secondary" className="gap-2">
+                <Clock className="w-4 h-4" />
+                {timeLeft}s
+              </Badge>
+              <Badge variant="outline">
+                Question {currentQuestionIndex + 1} of {allQuestions.length}
+              </Badge>
+            </div>
             {showResult && (
               <Badge
                 variant={

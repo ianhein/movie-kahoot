@@ -3,6 +3,7 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { nanoid } from "nanoid";
 import { randomUUID } from "crypto";
+import { updateTag } from "next/cache";
 
 export async function createRoom(userName: string) {
   try {
@@ -67,6 +68,10 @@ export async function createRoom(userName: string) {
       return { error: `Error adding member: ${memberError.message}` };
     }
 
+    // Revalidar cache de la sala
+    updateTag(`room-${room.id}`);
+    updateTag(`room-members-${room.id}`);
+
     return {
       success: true,
       roomCode: code,
@@ -118,6 +123,10 @@ export async function joinRoom(userName: string, roomCode: string) {
       return { error: "Error joining room" };
     }
 
+    // Revalidar cache de la sala
+    updateTag(`room-${room.id}`);
+    updateTag(`room-members-${room.id}`);
+
     return {
       success: true,
       roomId: room.id,
@@ -127,5 +136,59 @@ export async function joinRoom(userName: string, roomCode: string) {
   } catch (error) {
     console.error("Unexpected error:", error);
     return { error: "Unexpected error occurred" };
+  }
+}
+
+export async function getRoomStatus(roomId: string) {
+  try {
+    const supabase = createAdminClient();
+
+    const { data, error } = await supabase
+      .from("rooms")
+      .select("status")
+      .eq("id", roomId)
+      .single();
+
+    if (error || !data) {
+      return { error: "Room not found" };
+    }
+
+    return { status: data.status };
+  } catch (error) {
+    return { error: "Failed to get room status" };
+  }
+}
+
+export async function getRoomMembers(roomId: string) {
+  try {
+    const supabase = createAdminClient();
+
+    const { data, error } = await supabase
+      .from("room_members")
+      .select("user_id, joined_at")
+      .eq("room_id", roomId);
+
+    if (error) {
+      return { error: "Failed to load members" };
+    }
+
+    if (!data || data.length === 0) {
+      return { members: [] };
+    }
+
+    const userIds = data.map((m) => m.user_id);
+    const { data: users } = await supabase
+      .from("users")
+      .select("id, name")
+      .in("id", userIds);
+
+    const membersWithUsers = data.map((member) => ({
+      ...member,
+      users: users?.find((u) => u.id === member.user_id) || null,
+    }));
+
+    return { members: membersWithUsers };
+  } catch (error) {
+    return { error: "Failed to load members" };
   }
 }

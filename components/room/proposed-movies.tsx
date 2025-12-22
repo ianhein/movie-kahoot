@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { ThumbsUp, ThumbsDown, Check, Film } from "lucide-react";
+import { ThumbsUp, ThumbsDown, Check, Film, Loader2 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import {
   getProposedMovies,
@@ -12,6 +13,7 @@ import {
   selectMovie,
 } from "@/app/actions/movie-actions";
 import { toast } from "sonner";
+import type { Movie, RoomMovie } from "@/lib/types";
 
 interface ProposedMoviesProps {
   roomId: string;
@@ -19,55 +21,60 @@ interface ProposedMoviesProps {
   isHost: boolean;
 }
 
-type Movie = {
-  id: string;
-  title: string;
-  year: number | null;
-  poster_url: string | null;
-  overview: string | null;
-};
-
-type RoomMovie = {
-  id: string;
-  movie_id: string;
-  proposed_by: string | null;
-  accepted: boolean | null;
-  created_at: string;
-  movies: Movie | null;
-  movie_votes: Array<{
-    user_id: string;
-    vote: boolean;
-  }>;
-};
-
 export function ProposedMovies({
   roomId,
   userId,
   isHost,
 }: ProposedMoviesProps) {
+  const router = useRouter();
   const [movies, setMovies] = useState<RoomMovie[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [votingFor, setVotingFor] = useState<string | null>(null);
   const [selecting, setSelecting] = useState<string | null>(null);
+  const [loadingImages, setLoadingImages] = useState<Set<string>>(new Set());
 
   const loadMovies = async () => {
-    console.log("Loading movies for room:", roomId);
     const result = await getProposedMovies(roomId);
-    console.log("Loaded movies result:", result);
     if (result.movies) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      setMovies(result.movies as any);
+      const newMovies = result.movies as any;
+
+      // Solo marcar como loading las nuevas películas que no estaban antes
+      setMovies((prevMovies) => {
+        const prevIds = new Set(prevMovies.map((m) => m.id));
+        const newImageIds = newMovies
+          .filter((m: RoomMovie) => m.movies?.poster_url && !prevIds.has(m.id))
+          .map((m: RoomMovie) => m.id);
+
+        if (newImageIds.length > 0) {
+          setLoadingImages((prev) => {
+            const next = new Set(prev);
+            newImageIds.forEach((id: string) => next.add(id));
+            return next;
+          });
+        }
+
+        return newMovies;
+      });
     }
     setIsLoading(false);
+  };
+
+  const handleImageLoad = (roomMovieId: string) => {
+    setLoadingImages((prev) => {
+      const next = new Set(prev);
+      next.delete(roomMovieId);
+      return next;
+    });
   };
 
   useEffect(() => {
     loadMovies();
 
-    // Polling cada 5 segundos como fallback si Realtime no está disponible
+    // Polling cada 10 segundos - confiar en Realtime para actualizaciones
     const pollingInterval = setInterval(() => {
       loadMovies();
-    }, 5000);
+    }, 3000);
 
     // Suscribirse a cambios en tiempo real (si está habilitado)
     const supabase = createClient();
@@ -156,6 +163,10 @@ export function ProposedMovies({
         toast.error(result.error);
       } else {
         toast.success("Movie selected! Starting quiz...");
+        // Redirigir a la página del quiz
+        setTimeout(() => {
+          router.push(`/room/${roomId}/quiz`);
+        }, 500);
       }
     } catch (error) {
       toast.error("Failed to select movie");
@@ -206,6 +217,7 @@ export function ProposedMovies({
           const userVote = getUserVote(roomMovie);
           const { upvotes, downvotes } = getVoteCount(roomMovie);
           const movie = roomMovie.movies;
+          const isImageLoading = loadingImages.has(roomMovie.id);
 
           return (
             <div
@@ -213,11 +225,22 @@ export function ProposedMovies({
               className="flex gap-2 md:gap-3 p-2 md:p-3 rounded-lg border bg-card"
             >
               {movie.poster_url ? (
-                <img
-                  src={movie.poster_url}
-                  alt={movie.title}
-                  className="w-16 h-24 md:w-20 md:h-28 object-cover rounded flex-shrink-0"
-                />
+                <div className="relative w-16 h-24 md:w-20 md:h-28 flex-shrink-0">
+                  {isImageLoading && (
+                    <div className="absolute inset-0 bg-muted rounded flex items-center justify-center">
+                      <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+                    </div>
+                  )}
+                  <img
+                    src={movie.poster_url}
+                    alt={movie.title}
+                    className={`w-full h-full object-cover rounded ${
+                      isImageLoading ? "opacity-0" : "opacity-100"
+                    } transition-opacity duration-300`}
+                    onLoad={() => handleImageLoad(roomMovie.id)}
+                    onError={() => handleImageLoad(roomMovie.id)}
+                  />
+                </div>
               ) : (
                 <div className="w-16 h-24 md:w-20 md:h-28 bg-muted rounded flex items-center justify-center flex-shrink-0">
                   <Film className="w-6 h-6 md:w-8 md:h-8 text-muted-foreground" />
