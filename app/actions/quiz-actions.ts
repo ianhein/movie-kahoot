@@ -1,6 +1,6 @@
 "use server";
 
-import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 
 export async function createQuestion(
   roomId: string,
@@ -9,7 +9,7 @@ export async function createQuestion(
   correctIndex: number,
   durationSeconds: number = 20
 ) {
-  const supabase = await createClient();
+  const supabase = createAdminClient();
 
   const { data: question, error } = await supabase
     .from("questions")
@@ -35,7 +35,7 @@ export async function submitAnswer(
   userId: string,
   optionIndex: number
 ) {
-  const supabase = await createClient();
+  const supabase = createAdminClient();
 
   const { error } = await supabase.from("answers").insert({
     question_id: questionId,
@@ -51,7 +51,7 @@ export async function submitAnswer(
 }
 
 export async function getQuestions(roomId: string) {
-  const supabase = await createClient();
+  const supabase = createAdminClient();
 
   const { data: questions, error } = await supabase
     .from("questions")
@@ -81,7 +81,7 @@ export async function getQuestions(roomId: string) {
 }
 
 export async function finishQuiz(roomId: string) {
-  const supabase = await createClient();
+  const supabase = createAdminClient();
 
   const { error } = await supabase
     .from("rooms")
@@ -96,24 +96,12 @@ export async function finishQuiz(roomId: string) {
 }
 
 export async function getQuizResults(roomId: string) {
-  const supabase = await createClient();
+  const supabase = createAdminClient();
 
-  // Obtener todas las preguntas con respuestas
+  // Obtener todas las preguntas
   const { data: questions, error: questionsError } = await supabase
     .from("questions")
-    .select(
-      `
-      id,
-      text,
-      correct_index,
-      duration_seconds,
-      answers (
-        user_id,
-        option_index,
-        answered_at
-      )
-    `
-    )
+    .select("id, text, correct_index, duration_seconds, created_at")
     .eq("room_id", roomId)
     .order("created_at", { ascending: true });
 
@@ -121,51 +109,50 @@ export async function getQuizResults(roomId: string) {
     return { error: "Failed to load results" };
   }
 
+  // Obtener todas las respuestas por separado
+  const questionIds = questions.map((q) => q.id);
+  const { data: answers } = await supabase
+    .from("answers")
+    .select("question_id, user_id, option_index, answered_at")
+    .in("question_id", questionIds);
+
   // Obtener miembros
-  const { data: members, error: membersError } = await supabase
+  const { data: roomMembers, error: membersError } = await supabase
     .from("room_members")
-    .select(
-      `
-      user_id,
-      users (
-        id,
-        name
-      )
-    `
-    )
+    .select("user_id")
     .eq("room_id", roomId);
 
-  if (membersError || !members) {
+  if (membersError || !roomMembers) {
     return { error: "Failed to load members" };
   }
 
+  // Obtener nombres de usuarios
+  const userIds = roomMembers.map((m) => m.user_id);
+  const { data: users } = await supabase
+    .from("users")
+    .select("id, name")
+    .in("id", userIds);
+
   // Calcular puntuaciones
-  const scores = members.map((member) => {
+  const scores = roomMembers.map((member) => {
     let correctAnswers = 0;
-    let totalTime = 0;
 
     questions.forEach((question) => {
-      const userAnswer = question.answers.find(
-        (a: any) => a.user_id === member.user_id
+      const userAnswer = answers?.find(
+        (a) => a.user_id === member.user_id && a.question_id === question.id
       );
 
       if (userAnswer && userAnswer.option_index === question.correct_index) {
         correctAnswers++;
-        // Calcular tiempo de respuesta para bonificación
-        const answerTime = new Date(userAnswer.answered_at).getTime();
-        const questionTime = new Date().getTime(); // Simplificado
-        totalTime += Math.max(
-          0,
-          question.duration_seconds * 1000 - (answerTime - questionTime)
-        );
       }
     });
 
     const score = correctAnswers * 100; // 100 puntos por respuesta correcta
+    const user = users?.find((u) => u.id === member.user_id);
 
     return {
       userId: member.user_id,
-      userName: member.users?.name || "Unknown",
+      userName: user?.name || "Unknown",
       correctAnswers,
       totalQuestions: questions.length,
       score,

@@ -10,7 +10,7 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Search, Plus, Star } from "lucide-react";
+import { Search, Plus, Star, Film } from "lucide-react";
 import {
   searchMovies,
   getPopularMovies,
@@ -24,9 +24,14 @@ interface MovieSearchProps {
   roomId: string;
   userId: string;
   isHost: boolean;
+  onMovieProposed?: () => void;
 }
 
-export function MovieSearch({ roomId, userId, isHost }: MovieSearchProps) {
+export function MovieSearch({
+  roomId,
+  userId,
+  onMovieProposed,
+}: MovieSearchProps) {
   const [query, setQuery] = useState("");
   const [movies, setMovies] = useState<TMDBMovie[]>([]);
   const [isSearching, setIsSearching] = useState(false);
@@ -79,9 +84,17 @@ export function MovieSearch({ roomId, userId, isHost }: MovieSearchProps) {
       if (result.error) {
         toast.error(result.error);
       } else {
-        toast.success("Movie proposed!");
+        // Limpiar búsqueda
         setMovies([]);
         setQuery("");
+
+        // Esperar un momento para que la DB se actualice
+        await new Promise((resolve) => setTimeout(resolve, 500));
+
+        // Notificar al padre para recargar
+        onMovieProposed?.();
+
+        toast.success("Movie proposed!");
       }
     } catch (error) {
       toast.error("Failed to propose movie");
@@ -125,6 +138,7 @@ export function MovieSearch({ roomId, userId, isHost }: MovieSearchProps) {
                 className="flex gap-3 p-3 rounded-lg border bg-card hover:bg-accent transition-colors"
               >
                 {movie.poster_path ? (
+                  // eslint-disable-next-line @next/next/no-img-element
                   <img
                     src={getPosterUrl(movie.poster_path, "w185") || ""}
                     alt={movie.title}

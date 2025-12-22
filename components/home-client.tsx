@@ -97,16 +97,18 @@ export function HomeClient() {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-purple-50 via-white to-blue-50 dark:from-gray-900 dark:via-black dark:to-gray-900 p-4">
-      <div className="w-full max-w-lg space-y-8">
+    <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-purple-50 via-white to-blue-50 dark:from-gray-900 dark:via-black dark:to-gray-900 p-3 md:p-4">
+      <div className="w-full max-w-lg space-y-6 md:space-y-8">
         <div className="text-center space-y-2">
-          <div className="flex justify-center mb-4">
-            <div className="p-4 bg-purple-100 dark:bg-purple-900/20 rounded-full">
-              <Film className="w-12 h-12 text-purple-600 dark:text-purple-400" />
+          <div className="flex justify-center mb-3 md:mb-4">
+            <div className="p-3 md:p-4 bg-purple-100 dark:bg-purple-900/20 rounded-full">
+              <Film className="w-10 h-10 md:w-12 md:h-12 text-purple-600 dark:text-purple-400" />
             </div>
           </div>
-          <h1 className="text-4xl font-bold tracking-tight">Movie Kahoot</h1>
-          <p className="text-muted-foreground">
+          <h1 className="text-3xl md:text-4xl font-bold tracking-tight">
+            Movie Kahoot
+          </h1>
+          <p className="text-sm md:text-base text-muted-foreground px-4">
             Watch movies with friends and compete with fun quizzes!
           </p>
           <Button
@@ -114,6 +116,7 @@ export function HomeClient() {
             size="sm"
             onClick={handleTestConnection}
             disabled={isLoading}
+            className="mt-2"
           >
             <TestTube className="w-4 h-4 mr-2" />
             Test Connection
@@ -121,21 +124,36 @@ export function HomeClient() {
         </div>
 
         <Tabs defaultValue="create" className="w-full">
-          <TabsList className="grid w-full grid-cols-2">
-            <TabsTrigger value="create">Create Room</TabsTrigger>
-            <TabsTrigger value="join">Join Room</TabsTrigger>
+          <TabsList className="grid w-full grid-cols-2 h-auto">
+            <TabsTrigger
+              value="create"
+              className="text-sm md:text-base py-2 md:py-2.5"
+            >
+              Create Room
+            </TabsTrigger>
+            <TabsTrigger
+              value="join"
+              className="text-sm md:text-base py-2 md:py-2.5"
+            >
+              Join Room
+            </TabsTrigger>
           </TabsList>
 
           <TabsContent value="create">
             <Card>
-              <CardHeader>
-                <CardTitle>Create a New Room</CardTitle>
-                <CardDescription>
+              <CardHeader className="p-4 md:p-6">
+                <CardTitle className="text-lg md:text-xl">
+                  Create a New Room
+                </CardTitle>
+                <CardDescription className="text-sm">
                   Start a movie night and invite your friends
                 </CardDescription>
               </CardHeader>
-              <CardContent>
-                <form onSubmit={handleCreateRoom} className="space-y-4">
+              <CardContent className="p-4 md:p-6 pt-0">
+                <form
+                  onSubmit={handleCreateRoom}
+                  className="space-y-3 md:space-y-4"
+                >
                   <div className="space-y-2">
                     <Input
                       placeholder="Your name"
@@ -143,9 +161,14 @@ export function HomeClient() {
                       onChange={(e) => setCreateName(e.target.value)}
                       disabled={isLoading}
                       maxLength={50}
+                      className="h-11 md:h-10"
                     />
                   </div>
-                  <Button type="submit" className="w-full" disabled={isLoading}>
+                  <Button
+                    type="submit"
+                    className="w-full h-11 md:h-10"
+                    disabled={isLoading}
+                  >
                     <Users className="w-4 h-4 mr-2" />
                     {isLoading ? "Creating..." : "Create Room"}
                   </Button>
@@ -156,14 +179,19 @@ export function HomeClient() {
 
           <TabsContent value="join">
             <Card>
-              <CardHeader>
-                <CardTitle>Join a Room</CardTitle>
-                <CardDescription>
+              <CardHeader className="p-4 md:p-6">
+                <CardTitle className="text-lg md:text-xl">
+                  Join a Room
+                </CardTitle>
+                <CardDescription className="text-sm">
                   Enter the room code to join your friends
                 </CardDescription>
               </CardHeader>
-              <CardContent>
-                <form onSubmit={handleJoinRoom} className="space-y-4">
+              <CardContent className="p-4 md:p-6 pt-0">
+                <form
+                  onSubmit={handleJoinRoom}
+                  className="space-y-3 md:space-y-4"
+                >
                   <div className="space-y-2">
                     <Input
                       placeholder="Your name"
@@ -171,6 +199,7 @@ export function HomeClient() {
                       onChange={(e) => setJoinName(e.target.value)}
                       disabled={isLoading}
                       maxLength={50}
+                      className="h-11 md:h-10"
                     />
                   </div>
                   <div className="space-y-2">
@@ -182,10 +211,14 @@ export function HomeClient() {
                       }
                       disabled={isLoading}
                       maxLength={6}
-                      className="uppercase text-center text-lg font-mono"
+                      className="uppercase text-center text-lg md:text-xl font-mono h-11 md:h-10"
                     />
                   </div>
-                  <Button type="submit" className="w-full" disabled={isLoading}>
+                  <Button
+                    type="submit"
+                    className="w-full h-11 md:h-10"
+                    disabled={isLoading}
+                  >
                     {isLoading ? "Joining..." : "Join Room"}
                   </Button>
                 </form>

@@ -36,22 +36,19 @@ export function RoomClient({
   const router = useRouter();
   const [room, setRoom] = useState(initialRoom);
   const [members, setMembers] = useState(initialMembers);
-  const [userId, setUserId] = useState<string | null>(null);
-  const [userName, setUserName] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [movieRefreshKey, setMovieRefreshKey] = useState(0);
+
+  // Obtener userId del localStorage de forma segura
+  const userId =
+    typeof window !== "undefined" ? localStorage.getItem("userId") : null;
 
   useEffect(() => {
-    // Obtener userId del localStorage
-    const storedUserId = localStorage.getItem("userId");
-    const storedUserName = localStorage.getItem("userName");
-
-    if (!storedUserId) {
+    // Validar userId
+    if (!userId) {
       router.push("/");
       return;
     }
-
-    setUserId(storedUserId);
-    setUserName(storedUserName);
 
     // Suscribirse a cambios en la sala
     const supabase = createClient();
@@ -86,23 +83,26 @@ export function RoomClient({
           filter: `room_id=eq.${roomId}`,
         },
         async () => {
-          // Recargar miembros
+          // Recargar miembros sin la relación compleja
           const { data } = await supabase
             .from("room_members")
-            .select(
-              `
-              user_id,
-              joined_at,
-              users (
-                id,
-                name
-              )
-            `
-            )
+            .select("user_id, joined_at")
             .eq("room_id", roomId);
 
           if (data) {
-            setMembers(data as Member[]);
+            // Obtener nombres de usuarios por separado
+            const userIds = data.map((m) => m.user_id);
+            const { data: users } = await supabase
+              .from("users")
+              .select("id, name")
+              .in("id", userIds);
+
+            const membersWithUsers = data.map((member) => ({
+              ...member,
+              users: users?.find((u) => u.id === member.user_id) || null,
+            }));
+
+            setMembers(membersWithUsers as any);
           }
         }
       )
@@ -128,33 +128,43 @@ export function RoomClient({
     router.push("/");
   };
 
+  const handleMovieProposed = () => {
+    // Forzar recarga del componente ProposedMovies
+    setMovieRefreshKey((prev) => prev + 1);
+  };
+
   if (!userId) {
     return null;
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-purple-50 via-white to-blue-50 dark:from-gray-900 dark:via-black dark:to-gray-900 p-4">
-      <div className="max-w-7xl mx-auto space-y-4">
+    <div className="min-h-screen bg-gradient-to-br from-purple-50 via-white to-blue-50 dark:from-gray-900 dark:via-black dark:to-gray-900 p-3 md:p-4">
+      <div className="max-w-7xl mx-auto space-y-3 md:space-y-4">
         {/* Header */}
         <Card>
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-4">
-                <div className="p-3 bg-purple-100 dark:bg-purple-900/20 rounded-full">
-                  <Film className="w-6 h-6 text-purple-600 dark:text-purple-400" />
+          <CardHeader className="p-4 md:p-6">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2 md:gap-4 min-w-0">
+                <div className="p-2 md:p-3 bg-purple-100 dark:bg-purple-900/20 rounded-full flex-shrink-0">
+                  <Film className="w-5 h-5 md:w-6 md:h-6 text-purple-600 dark:text-purple-400" />
                 </div>
-                <div>
-                  <CardTitle className="text-2xl">Movie Night</CardTitle>
-                  <div className="flex items-center gap-2 mt-1">
+                <div className="min-w-0">
+                  <CardTitle className="text-lg md:text-2xl truncate">
+                    Movie Night
+                  </CardTitle>
+                  <div className="flex items-center gap-1.5 md:gap-2 mt-1 flex-wrap">
                     <Badge
                       variant="secondary"
-                      className="text-lg font-mono cursor-pointer"
+                      className="text-sm md:text-lg font-mono cursor-pointer"
                       onClick={handleCopyCode}
                     >
                       {copied ? "Copied!" : room.code}
                     </Badge>
                     {isHost && (
-                      <Badge variant="default" className="gap-1">
+                      <Badge
+                        variant="default"
+                        className="gap-1 text-xs md:text-sm"
+                      >
                         <Crown className="w-3 h-3" />
                         Host
                       </Badge>
@@ -162,36 +172,41 @@ export function RoomClient({
                   </div>
                 </div>
               </div>
-              <Button variant="outline" onClick={handleLeaveRoom}>
-                <LogOut className="w-4 h-4 mr-2" />
-                Leave
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleLeaveRoom}
+                className="flex-shrink-0"
+              >
+                <LogOut className="w-4 h-4 md:mr-2" />
+                <span className="hidden md:inline">Leave</span>
               </Button>
             </div>
           </CardHeader>
         </Card>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 md:gap-4">
           {/* Members sidebar */}
           <Card className="lg:col-span-1">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Users className="w-5 h-5" />
+            <CardHeader className="p-4 md:p-6">
+              <CardTitle className="flex items-center gap-2 text-base md:text-lg">
+                <Users className="w-4 h-4 md:w-5 md:h-5" />
                 Members ({members.length})
               </CardTitle>
             </CardHeader>
-            <CardContent>
+            <CardContent className="p-4 md:p-6 pt-0">
               <div className="space-y-2">
                 {members.map((member) => (
                   <div
                     key={member.user_id}
-                    className="flex items-center justify-between p-2 rounded-lg bg-muted/50"
+                    className="flex items-center justify-between p-2 md:p-3 rounded-lg bg-muted/50"
                   >
-                    <span className="font-medium">
+                    <span className="font-medium text-sm md:text-base truncate">
                       {member.users?.name}
                       {member.user_id === userId && " (You)"}
                     </span>
                     {member.user_id === room.host_id && (
-                      <Crown className="w-4 h-4 text-yellow-500" />
+                      <Crown className="w-4 h-4 text-yellow-500 flex-shrink-0 ml-2" />
                     )}
                   </div>
                 ))}
@@ -200,11 +215,17 @@ export function RoomClient({
           </Card>
 
           {/* Main content */}
-          <div className="lg:col-span-2 space-y-4">
+          <div className="lg:col-span-2 space-y-3 md:space-y-4">
             {room.status === "voting" && (
               <>
-                <MovieSearch roomId={roomId} userId={userId} isHost={isHost} />
+                <MovieSearch
+                  roomId={roomId}
+                  userId={userId}
+                  isHost={isHost}
+                  onMovieProposed={handleMovieProposed}
+                />
                 <ProposedMovies
+                  key={movieRefreshKey}
                   roomId={roomId}
                   userId={userId}
                   isHost={isHost}

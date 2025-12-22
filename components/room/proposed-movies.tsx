@@ -51,9 +51,12 @@ export function ProposedMovies({
   const [selecting, setSelecting] = useState<string | null>(null);
 
   const loadMovies = async () => {
+    console.log("Loading movies for room:", roomId);
     const result = await getProposedMovies(roomId);
+    console.log("Loaded movies result:", result);
     if (result.movies) {
-      setMovies(result.movies as RoomMovie[]);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      setMovies(result.movies as any);
     }
     setIsLoading(false);
   };
@@ -61,37 +64,72 @@ export function ProposedMovies({
   useEffect(() => {
     loadMovies();
 
-    // Suscribirse a cambios en tiempo real
+    // Polling cada 5 segundos como fallback si Realtime no está disponible
+    const pollingInterval = setInterval(() => {
+      loadMovies();
+    }, 5000);
+
+    // Suscribirse a cambios en tiempo real (si está habilitado)
     const supabase = createClient();
 
     const channel = supabase
-      .channel(`room_movies:${roomId}`)
+      .channel(`room_movies_${roomId}`)
       .on(
         "postgres_changes",
         {
-          event: "*",
+          event: "INSERT",
           schema: "public",
           table: "room_movies",
           filter: `room_id=eq.${roomId}`,
         },
-        () => {
+        (payload) => {
+          console.log("Room movie inserted:", payload);
           loadMovies();
         }
       )
       .on(
         "postgres_changes",
         {
-          event: "*",
+          event: "UPDATE",
           schema: "public",
-          table: "movie_votes",
+          table: "room_movies",
+          filter: `room_id=eq.${roomId}`,
         },
-        () => {
+        (payload) => {
+          console.log("Room movie updated:", payload);
           loadMovies();
         }
       )
-      .subscribe();
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "movie_votes",
+        },
+        (payload) => {
+          console.log("Vote inserted:", payload);
+          loadMovies();
+        }
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "movie_votes",
+        },
+        (payload) => {
+          console.log("Vote updated:", payload);
+          loadMovies();
+        }
+      )
+      .subscribe((status) => {
+        console.log("Subscription status:", status);
+      });
 
     return () => {
+      clearInterval(pollingInterval);
       supabase.removeChannel(channel);
     };
   }, [roomId]);
@@ -158,10 +196,10 @@ export function ProposedMovies({
 
   return (
     <Card>
-      <CardHeader>
-        <CardTitle>Proposed Movies</CardTitle>
+      <CardHeader className="p-4 md:p-6">
+        <CardTitle className="text-base md:text-lg">Proposed Movies</CardTitle>
       </CardHeader>
-      <CardContent className="space-y-3">
+      <CardContent className="p-4 md:p-6 pt-0 space-y-3">
         {movies.map((roomMovie) => {
           if (!roomMovie.movies) return null;
 
@@ -172,52 +210,61 @@ export function ProposedMovies({
           return (
             <div
               key={roomMovie.id}
-              className="flex gap-3 p-3 rounded-lg border bg-card"
+              className="flex gap-2 md:gap-3 p-2 md:p-3 rounded-lg border bg-card"
             >
               {movie.poster_url ? (
                 <img
                   src={movie.poster_url}
                   alt={movie.title}
-                  className="w-20 h-28 object-cover rounded"
+                  className="w-16 h-24 md:w-20 md:h-28 object-cover rounded flex-shrink-0"
                 />
               ) : (
-                <div className="w-20 h-28 bg-muted rounded flex items-center justify-center">
-                  <Film className="w-8 h-8 text-muted-foreground" />
+                <div className="w-16 h-24 md:w-20 md:h-28 bg-muted rounded flex items-center justify-center flex-shrink-0">
+                  <Film className="w-6 h-6 md:w-8 md:h-8 text-muted-foreground" />
                 </div>
               )}
               <div className="flex-1 min-w-0">
-                <div className="flex items-start justify-between gap-2">
-                  <div>
-                    <h3 className="font-semibold">{movie.title}</h3>
+                <div className="flex items-start justify-between gap-1 md:gap-2">
+                  <div className="min-w-0 flex-1">
+                    <h3 className="font-semibold text-sm md:text-base truncate">
+                      {movie.title}
+                    </h3>
                     {movie.year && (
-                      <p className="text-sm text-muted-foreground">
+                      <p className="text-xs md:text-sm text-muted-foreground">
                         {movie.year}
                       </p>
                     )}
                   </div>
-                  <div className="flex gap-2">
-                    <Badge variant="secondary" className="gap-1">
+                  <div className="flex gap-1 md:gap-2 flex-shrink-0">
+                    <Badge
+                      variant="secondary"
+                      className="gap-0.5 md:gap-1 text-xs md:text-sm px-1.5 md:px-2"
+                    >
                       <ThumbsUp className="w-3 h-3" />
                       {upvotes}
                     </Badge>
-                    <Badge variant="secondary" className="gap-1">
+                    <Badge
+                      variant="secondary"
+                      className="gap-0.5 md:gap-1 text-xs md:text-sm px-1.5 md:px-2"
+                    >
                       <ThumbsDown className="w-3 h-3" />
                       {downvotes}
                     </Badge>
                   </div>
                 </div>
-                <p className="text-sm text-muted-foreground mt-2 line-clamp-2">
+                <p className="text-xs md:text-sm text-muted-foreground mt-1 md:mt-2 line-clamp-2 hidden sm:block">
                   {movie.overview}
                 </p>
-                <div className="flex gap-2 mt-3">
+                <div className="flex flex-wrap gap-1.5 md:gap-2 mt-2 md:mt-3">
                   <Button
                     size="sm"
                     variant={userVote?.vote === true ? "default" : "outline"}
                     onClick={() => handleVote(roomMovie.id, true)}
                     disabled={votingFor === roomMovie.id}
+                    className="h-8 text-xs md:text-sm"
                   >
-                    <ThumbsUp className="w-4 h-4 mr-1" />
-                    Yes
+                    <ThumbsUp className="w-3 h-3 md:w-4 md:h-4 md:mr-1" />
+                    <span className="hidden sm:inline">Yes</span>
                   </Button>
                   <Button
                     size="sm"
@@ -226,22 +273,26 @@ export function ProposedMovies({
                     }
                     onClick={() => handleVote(roomMovie.id, false)}
                     disabled={votingFor === roomMovie.id}
+                    className="h-8 text-xs md:text-sm"
                   >
-                    <ThumbsDown className="w-4 h-4 mr-1" />
-                    No
+                    <ThumbsDown className="w-3 h-3 md:w-4 md:h-4 md:mr-1" />
+                    <span className="hidden sm:inline">No</span>
                   </Button>
                   {isHost && (
                     <Button
                       size="sm"
                       variant="default"
-                      className="ml-auto"
+                      className="ml-auto h-8 text-xs md:text-sm"
                       onClick={() => handleSelectMovie(roomMovie.id)}
                       disabled={selecting === roomMovie.id}
                     >
-                      <Check className="w-4 h-4 mr-1" />
-                      {selecting === roomMovie.id
-                        ? "Selecting..."
-                        : "Select & Start Quiz"}
+                      <Check className="w-3 h-3 md:w-4 md:h-4 md:mr-1" />
+                      <span className="hidden md:inline">
+                        {selecting === roomMovie.id
+                          ? "Selecting..."
+                          : "Select & Start Quiz"}
+                      </span>
+                      <span className="md:hidden">Select</span>
                     </Button>
                   )}
                 </div>

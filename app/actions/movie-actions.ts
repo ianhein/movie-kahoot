@@ -1,9 +1,9 @@
 "use server";
 
-import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 
 export async function getRoomDetails(roomId: string) {
-  const supabase = await createClient();
+  const supabase = createAdminClient();
 
   const { data: room, error: roomError } = await supabase
     .from("rooms")
@@ -49,7 +49,7 @@ export async function proposeMovie(
   overview: string | null,
   userId: string
 ) {
-  const supabase = await createClient();
+  const supabase = createAdminClient();
 
   // Primero insertar o actualizar la película
   const { error: movieError } = await supabase.from("movies").upsert({
@@ -88,7 +88,7 @@ export async function voteForMovie(
   userId: string,
   vote: boolean
 ) {
-  const supabase = await createClient();
+  const supabase = createAdminClient();
 
   const { error } = await supabase.from("movie_votes").upsert({
     room_movie_id: roomMovieId,
@@ -104,7 +104,7 @@ export async function voteForMovie(
 }
 
 export async function getProposedMovies(roomId: string) {
-  const supabase = await createClient();
+  const supabase = createAdminClient();
 
   const { data: roomMovies, error } = await supabase
     .from("room_movies")
@@ -139,7 +139,7 @@ export async function getProposedMovies(roomId: string) {
 }
 
 export async function selectMovie(roomId: string, roomMovieId: string) {
-  const supabase = await createClient();
+  const supabase = createAdminClient();
 
   // Marcar esta película como aceptada
   const { error: updateError } = await supabase
