@@ -35,7 +35,9 @@ export function HomeClient() {
       if (result.success) {
         toast.success(result.message);
       } else {
-        toast.error(t("connectionFailed", { error: result.error }));
+        toast.error(
+          t("connectionFailed", { error: result.error || "Unknown error" })
+        );
         console.error("Connection test details:", result.details);
       }
     } catch (error) {

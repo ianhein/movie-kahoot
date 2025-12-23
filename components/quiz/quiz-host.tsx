@@ -40,7 +40,7 @@ import {
   getQuestionAnswers,
 } from "@/app/actions/quiz-actions";
 import { toast } from "sonner";
-import type { Question, Answer, QuizHostProps } from "@/lib/types";
+import type { Question, Answer, QuizHostProps, Room } from "@/lib/types";
 import { ThemeToggle } from "@/components/theme-toggle";
 
 // Helper para formatear tiempo
