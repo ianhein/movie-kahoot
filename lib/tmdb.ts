@@ -13,10 +13,10 @@ const TMDB_IMAGE_BASE = "https://image.tmdb.org/t/p";
 // Convert app locale to TMDB language code
 function getTMDBLanguage(locale?: string): string {
   const languageMap: Record<string, string> = {
-    es: "es-ES",
+    es: "es-AR", // Español de Argentina
     en: "en-US",
   };
-  return languageMap[locale || "es"] || "es-ES";
+  return languageMap[locale || "es"] || "es-AR";
 }
 
 // Re-export types for convenience
