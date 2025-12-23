@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { useTranslations } from "next-intl";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -11,23 +12,11 @@ import { useRouter } from "next/navigation";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { useConfetti } from "@/lib/hooks/use-confetti";
 import { getAvatar } from "@/lib/utils/avatars";
-import type { Member } from "@/lib/types";
-
-interface QuizResultsProps {
-  roomId: string;
-  members: Member[];
-}
-
-type PlayerScore = {
-  userId: string;
-  userName: string;
-  correctAnswers: number;
-  totalQuestions: number;
-  score: number;
-};
+import type { QuizResultsProps, PlayerScore } from "@/lib/types";
 
 export function QuizResults({ roomId }: QuizResultsProps) {
   const router = useRouter();
+  const t = useTranslations("quiz");
   const [scores, setScores] = useState<PlayerScore[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const { fireWinnerConfetti } = useConfetti();
@@ -89,7 +78,7 @@ export function QuizResults({ roomId }: QuizResultsProps) {
         </div>
         <Card className="max-w-md w-full">
           <CardContent className="py-12 text-center">
-            <p className="text-lg">Calculating results...</p>
+            <p className="text-lg">{t("calculatingResults")}</p>
           </CardContent>
         </Card>
       </div>
@@ -126,14 +115,14 @@ export function QuizResults({ roomId }: QuizResultsProps) {
               >
                 <Trophy className="w-16 h-16 text-yellow-500" />
               </motion.div>
-              <CardTitle className="text-4xl">Quiz Complete!</CardTitle>
+              <CardTitle className="text-4xl">{t("complete")}</CardTitle>
             </CardHeader>
           </Card>
         </motion.div>
 
         <Card>
           <CardHeader>
-            <CardTitle>Final Scores</CardTitle>
+            <CardTitle>{t("finalScores")}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
             <AnimatePresence>
@@ -144,7 +133,7 @@ export function QuizResults({ roomId }: QuizResultsProps) {
                   animate={{ opacity: 1, x: 0 }}
                   transition={{ delay: index * 0.2, duration: 0.4 }}
                   whileHover={{ scale: 1.02 }}
-                  className={`relative overflow-hidden rounded-lg border-2 p-4 bg-linear-to-r ${getMedalColor(index)}`}
+                  className={`relative overflow-hidden rounded-lg border-2 p-3 sm:p-4 bg-linear-to-r ${getMedalColor(index)}`}
                 >
                   {index === 0 && (
                     <motion.div
@@ -157,50 +146,57 @@ export function QuizResults({ roomId }: QuizResultsProps) {
                       }}
                     />
                   )}
-                  <div className="flex items-center gap-4 relative z-10">
-                    <motion.div
-                      className="shrink-0"
-                      animate={index === 0 ? { rotate: [0, 10, -10, 0] } : {}}
-                      transition={{
-                        duration: 0.5,
-                        repeat: Infinity,
-                        repeatDelay: 2,
-                      }}
-                    >
-                      {getMedalIcon(index)}
-                    </motion.div>
-                    {/* Avatar del jugador */}
-                    <div
-                      className={`w-10 h-10 md:w-12 md:h-12 rounded-full flex items-center justify-center text-xl md:text-2xl shrink-0 ${getAvatar(player.userId).color} ring-2 ring-white/50`}
-                    >
-                      {getAvatar(player.userId).emoji}
-                    </div>
-                    <div className="flex-1">
-                      <div className="flex items-center justify-between mb-1">
-                        <h3 className="font-bold text-lg">{player.userName}</h3>
-                        <motion.div
-                          initial={{ scale: 0 }}
-                          animate={{ scale: 1 }}
-                          transition={{
-                            delay: index * 0.2 + 0.3,
-                            type: "spring",
-                          }}
-                        >
-                          <Badge
-                            variant="secondary"
-                            className="text-lg font-bold"
-                          >
-                            {player.score} pts
-                          </Badge>
-                        </motion.div>
+                  <div className="flex flex-col gap-2 relative z-10">
+                    {/* Top row: Position + Avatar + Name */}
+                    <div className="flex items-center gap-3">
+                      {/* Position number for mobile */}
+                      <div className="text-lg font-bold opacity-60 w-6 text-center">
+                        #{index + 1}
                       </div>
-                      <p className="text-sm opacity-75">
-                        {player.correctAnswers} / {player.totalQuestions}{" "}
-                        correct
-                      </p>
+                      {/* Medal icon */}
+                      <motion.div
+                        className="shrink-0"
+                        animate={index === 0 ? { rotate: [0, 10, -10, 0] } : {}}
+                        transition={{
+                          duration: 0.5,
+                          repeat: Infinity,
+                          repeatDelay: 2,
+                        }}
+                      >
+                        {getMedalIcon(index)}
+                      </motion.div>
+                      {/* Avatar del jugador */}
+                      <div
+                        className={`w-8 h-8 sm:w-10 sm:h-10 rounded-full flex items-center justify-center text-lg sm:text-xl shrink-0 ${getAvatar(player.userId).color} ring-2 ring-white/50`}
+                      >
+                        {getAvatar(player.userId).emoji}
+                      </div>
+                      {/* Name - truncated on small screens */}
+                      <h3 className="font-bold text-sm sm:text-base truncate flex-1 min-w-0">
+                        {player.userName}
+                      </h3>
                     </div>
-                    <div className="text-2xl font-bold opacity-60">
-                      #{index + 1}
+                    {/* Bottom row: Score + Correct answers */}
+                    <div className="flex items-center justify-between pl-9">
+                      <p className="text-xs sm:text-sm opacity-75">
+                        {player.correctAnswers} / {player.totalQuestions}{" "}
+                        {t("correct")}
+                      </p>
+                      <motion.div
+                        initial={{ scale: 0 }}
+                        animate={{ scale: 1 }}
+                        transition={{
+                          delay: index * 0.2 + 0.3,
+                          type: "spring",
+                        }}
+                      >
+                        <Badge
+                          variant="secondary"
+                          className="text-sm sm:text-base font-bold"
+                        >
+                          {player.score} {t("pts")}
+                        </Badge>
+                      </motion.div>
                     </div>
                   </div>
                 </motion.div>
@@ -220,7 +216,7 @@ export function QuizResults({ roomId }: QuizResultsProps) {
             onClick={() => router.push(`/room/${roomId}`)}
           >
             <ArrowLeft className="w-4 h-4 mr-2" />
-            Back to Room
+            {t("backToRoom")}
           </Button>
         </motion.div>
       </div>

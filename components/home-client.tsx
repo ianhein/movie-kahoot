@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { useTranslations } from "next-intl";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -17,9 +18,11 @@ import { testConnection } from "@/app/actions/test-connection";
 import { Film, Users, TestTube } from "lucide-react";
 import { toast } from "sonner";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { LanguageSwitcher } from "@/components/language-switcher";
 
 export function HomeClient() {
   const router = useRouter();
+  const t = useTranslations("home");
   const [isLoading, setIsLoading] = useState(false);
   const [createName, setCreateName] = useState("");
   const [joinName, setJoinName] = useState("");
@@ -32,11 +35,11 @@ export function HomeClient() {
       if (result.success) {
         toast.success(result.message);
       } else {
-        toast.error(`Connection failed: ${result.error}`);
+        toast.error(t("connectionFailed", { error: result.error }));
         console.error("Connection test details:", result.details);
       }
     } catch (error) {
-      toast.error("Test failed");
+      toast.error(t("testFailed"));
       console.error(error);
     } finally {
       setIsLoading(false);
@@ -46,7 +49,7 @@ export function HomeClient() {
   const handleCreateRoom = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!createName.trim()) {
-      toast.error("Please enter your name");
+      toast.error(t("enterName"));
       return;
     }
 
@@ -61,11 +64,11 @@ export function HomeClient() {
         // Guardar info en localStorage
         localStorage.setItem("userId", result.userId!);
         localStorage.setItem("userName", createName);
-        toast.success(`Room created! Code: ${result.roomCode}`);
+        toast.success(t("roomCreated", { code: result.roomCode }));
         router.push(`/room/${result.roomId}`);
       }
     } catch {
-      toast.error("Failed to create room");
+      toast.error(t("createFailed"));
     } finally {
       setIsLoading(false);
     }
@@ -74,7 +77,7 @@ export function HomeClient() {
   const handleJoinRoom = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!joinName.trim() || !roomCode.trim()) {
-      toast.error("Please enter your name and room code");
+      toast.error(t("enterNameAndCode"));
       return;
     }
 
@@ -87,11 +90,11 @@ export function HomeClient() {
         // Guardar info en localStorage
         localStorage.setItem("userId", result.userId!);
         localStorage.setItem("userName", joinName);
-        toast.success("Joined room successfully!");
+        toast.success(t("joinedSuccess"));
         router.push(`/room/${result.roomId}`);
       }
     } catch {
-      toast.error("Failed to join room");
+      toast.error(t("joinFailed"));
     } finally {
       setIsLoading(false);
     }
@@ -102,7 +105,8 @@ export function HomeClient() {
       suppressHydrationWarning
       className="flex min-h-screen items-center justify-center bg-gradient-to-br from-purple-50 via-white to-blue-50 dark:from-gray-900 dark:via-black dark:to-gray-900 p-3 md:p-4"
     >
-      <div className="absolute top-4 right-4">
+      <div className="absolute top-4 right-4 flex gap-2">
+        <LanguageSwitcher />
         <ThemeToggle />
       </div>
       <div className="w-full max-w-lg space-y-6 md:space-y-8">
@@ -113,10 +117,10 @@ export function HomeClient() {
             </div>
           </div>
           <h1 className="text-3xl md:text-4xl font-bold tracking-tight">
-            Kahoovie
+            {t("title")}
           </h1>
           <p className="text-sm md:text-base text-muted-foreground px-4">
-            Watch movies with friends and compete with fun quizzes!
+            {t("description")}
           </p>
           <Button
             variant="outline"
@@ -126,7 +130,7 @@ export function HomeClient() {
             className="mt-2"
           >
             <TestTube className="w-4 h-4 mr-2" />
-            Test Connection
+            {t("testConnection")}
           </Button>
         </div>
 
@@ -136,13 +140,13 @@ export function HomeClient() {
               value="create"
               className="text-sm md:text-base py-2 md:py-2.5"
             >
-              Create Room
+              {t("createRoom")}
             </TabsTrigger>
             <TabsTrigger
               value="join"
               className="text-sm md:text-base py-2 md:py-2.5"
             >
-              Join Room
+              {t("joinRoom")}
             </TabsTrigger>
           </TabsList>
 
@@ -150,10 +154,10 @@ export function HomeClient() {
             <Card>
               <CardHeader className="p-4 md:p-6">
                 <CardTitle className="text-lg md:text-xl">
-                  Create a New Room
+                  {t("createTitle")}
                 </CardTitle>
                 <CardDescription className="text-sm">
-                  Start a Kahoovie night and invite your friends
+                  {t("createDescription")}
                 </CardDescription>
               </CardHeader>
               <CardContent className="p-4 md:p-6 pt-0">
@@ -163,7 +167,7 @@ export function HomeClient() {
                 >
                   <div className="space-y-2">
                     <Input
-                      placeholder="Your name"
+                      placeholder={t("yourName")}
                       value={createName}
                       onChange={(e) => setCreateName(e.target.value)}
                       disabled={isLoading}
@@ -177,7 +181,7 @@ export function HomeClient() {
                     disabled={isLoading}
                   >
                     <Users className="w-4 h-4 mr-2" />
-                    {isLoading ? "Creating..." : "Create Room"}
+                    {isLoading ? t("creating") : t("createRoom")}
                   </Button>
                 </form>
               </CardContent>
@@ -188,10 +192,10 @@ export function HomeClient() {
             <Card>
               <CardHeader className="p-4 md:p-6">
                 <CardTitle className="text-lg md:text-xl">
-                  Join a Room
+                  {t("joinTitle")}
                 </CardTitle>
                 <CardDescription className="text-sm">
-                  Enter the room code to join your friends
+                  {t("joinDescription")}
                 </CardDescription>
               </CardHeader>
               <CardContent className="p-4 md:p-6 pt-0">
@@ -201,7 +205,7 @@ export function HomeClient() {
                 >
                   <div className="space-y-2">
                     <Input
-                      placeholder="Your name"
+                      placeholder={t("yourName")}
                       value={joinName}
                       onChange={(e) => setJoinName(e.target.value)}
                       disabled={isLoading}
@@ -211,7 +215,7 @@ export function HomeClient() {
                   </div>
                   <div className="space-y-2">
                     <Input
-                      placeholder="Room code"
+                      placeholder={t("roomCode")}
                       value={roomCode}
                       onChange={(e) =>
                         setRoomCode(e.target.value.toUpperCase())
@@ -226,7 +230,7 @@ export function HomeClient() {
                     className="w-full h-11 md:h-10"
                     disabled={isLoading}
                   >
-                    {isLoading ? "Joining..." : "Join Room"}
+                    {isLoading ? t("joining") : t("joinRoom")}
                   </Button>
                 </form>
               </CardContent>

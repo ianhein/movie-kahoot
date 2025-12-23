@@ -284,6 +284,15 @@ export async function getQuizResults(roomId: string) {
     async () => {
       const supabase = createAdminClient();
 
+      // Obtener el host_id del room para excluirlo (el host no participa del quiz)
+      const { data: room } = await supabase
+        .from("rooms")
+        .select("host_id")
+        .eq("id", roomId)
+        .single();
+
+      const hostId = room?.host_id;
+
       // Obtener todas las preguntas
       const { data: questions, error: questionsError } = await supabase
         .from("questions")
@@ -302,11 +311,17 @@ export async function getQuizResults(roomId: string) {
         .select("question_id, user_id, option_index, answered_at")
         .in("question_id", questionIds);
 
-      // Obtener miembros
-      const { data: roomMembers, error: membersError } = await supabase
+      // Obtener miembros (excluyendo al host que no participa del quiz)
+      let query = supabase
         .from("room_members")
         .select("user_id")
         .eq("room_id", roomId);
+
+      if (hostId) {
+        query = query.neq("user_id", hostId);
+      }
+
+      const { data: roomMembers, error: membersError } = await query;
 
       if (membersError || !roomMembers) {
         return { error: "Failed to load members" };

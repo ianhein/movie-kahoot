@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import useSWR, { mutate } from "swr";
+import { useTranslations, useLocale } from "next-intl";
 import { createClient } from "@/lib/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -26,15 +27,12 @@ import {
   resetRoomToVoting,
   getWinningMovie,
 } from "@/app/actions/room-actions";
+import { getMovieDetails, getPosterUrl } from "@/lib/tmdb";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { LanguageSwitcher } from "@/components/language-switcher";
 import { motion } from "framer-motion";
 import { getAvatar } from "@/lib/utils/avatars";
-
-interface RoomClientProps {
-  roomId: string;
-  initialRoom: Room;
-  initialMembers: Member[];
-}
+import type { RoomClientProps } from "@/lib/types";
 
 export function RoomClient({
   roomId,
@@ -42,6 +40,9 @@ export function RoomClient({
   initialMembers,
 }: RoomClientProps) {
   const router = useRouter();
+  const t = useTranslations("room");
+  const tCommon = useTranslations("common");
+  const locale = useLocale();
   const [room, setRoom] = useState(initialRoom);
   const [members, setMembers] = useState(initialMembers);
   const [copied, setCopied] = useState(false);
@@ -57,6 +58,7 @@ export function RoomClient({
     overview: string | null;
   } | null>(null);
   const [isResetting, setIsResetting] = useState(false);
+  const previousStatusRef = useRef<string>(initialRoom.status);
 
   // Cargar userId después del montaje para evitar hydration mismatch
   useEffect(() => {
@@ -90,12 +92,27 @@ export function RoomClient({
       if (room.status === "finished") {
         const result = await getWinningMovie(roomId);
         if ("movie" in result && result.movie) {
-          setWinningMovie(result.movie as typeof winningMovie);
+          // Obtener datos actualizados de TMDB en el idioma actual
+          try {
+            const tmdbDetails = await getMovieDetails(result.movie.id, locale);
+            setWinningMovie({
+              id: result.movie.id,
+              title: tmdbDetails.title,
+              year: tmdbDetails.release_date
+                ? new Date(tmdbDetails.release_date).getFullYear()
+                : null,
+              poster_url: getPosterUrl(tmdbDetails.poster_path, "w342"),
+              overview: tmdbDetails.overview,
+            });
+          } catch {
+            // Fallback a datos de BD si falla TMDB
+            setWinningMovie(result.movie as typeof winningMovie);
+          }
         }
       }
     };
     loadWinningMovie();
-  }, [room.status, roomId]);
+  }, [room.status, roomId, locale]);
 
   // Función para reiniciar la sala
   const handleResetRoom = async () => {
@@ -108,10 +125,10 @@ export function RoomClient({
         setRoom((prev) => ({ ...prev, status: "voting" }));
         setWinningMovie(null);
         setMovieRefreshKey((prev) => prev + 1);
-        toast.success("Room reset! Start proposing movies again.");
+        toast.success(t("roomReset"));
       }
     } catch {
-      toast.error("Failed to reset room");
+      toast.error(t("resetFailed"));
     } finally {
       setIsResetting(false);
     }
@@ -165,10 +182,22 @@ export function RoomClient({
     }
   }, [membersData]);
 
-  // Redirigir cuando el status cambia a quiz
+  // Redirigir cuando el status CAMBIA a quiz (no cuando ya era quiz)
   useEffect(() => {
-    if (roomStatus === "quiz") {
+    // Solo redirigir si:
+    // 1. El status actual es "quiz"
+    // 2. El status anterior NO era "quiz" ni "finished" (evita redirección al volver del scoreboard)
+    const prevStatus = previousStatusRef.current;
+    if (
+      roomStatus === "quiz" &&
+      prevStatus !== "quiz" &&
+      prevStatus !== "finished"
+    ) {
       router.push(`/room/${roomId}/quiz`);
+    }
+    // Actualizar el ref con el status actual
+    if (roomStatus) {
+      previousStatusRef.current = roomStatus;
     }
   }, [roomStatus, roomId, router]);
 
@@ -228,7 +257,7 @@ export function RoomClient({
   const handleCopyCode = () => {
     navigator.clipboard.writeText(room.code);
     setCopied(true);
-    toast.success("Room code copied!");
+    toast.success(t("codeCopied"));
     setTimeout(() => setCopied(false), 2000);
   };
 
@@ -252,7 +281,7 @@ export function RoomClient({
       >
         <div className="text-center">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-600 mx-auto" />
-          <p className="mt-2 text-muted-foreground">Loading...</p>
+          <p className="mt-2 text-muted-foreground">{tCommon("loading")}</p>
         </div>
       </div>
     );
@@ -287,7 +316,7 @@ export function RoomClient({
                       className="text-sm md:text-lg font-mono cursor-pointer"
                       onClick={handleCopyCode}
                     >
-                      {copied ? "Copied!" : room.code}
+                      {copied ? tCommon("copied") : room.code}
                     </Badge>
                     {isHost && (
                       <Badge
@@ -295,13 +324,14 @@ export function RoomClient({
                         className="gap-1 text-xs md:text-sm"
                       >
                         <Crown className="w-3 h-3" />
-                        Host
+                        {tCommon("host")}
                       </Badge>
                     )}
                   </div>
                 </div>
               </div>
               <div className="flex items-center gap-2 shrink-0">
+                <LanguageSwitcher />
                 <ThemeToggle />
                 <Button
                   variant="outline"
@@ -310,7 +340,7 @@ export function RoomClient({
                   className="h-8 md:h-9"
                 >
                   <LogOut className="w-3 h-3 md:w-4 md:h-4 md:mr-2" />
-                  <span className="hidden sm:inline">Leave</span>
+                  <span className="hidden sm:inline">{t("leaveRoom")}</span>
                 </Button>
               </div>
             </div>
@@ -323,7 +353,7 @@ export function RoomClient({
             <CardHeader className="p-4 md:p-6">
               <CardTitle className="flex items-center gap-2 text-base md:text-lg">
                 <Users className="w-4 h-4 md:w-5 md:h-5" />
-                Members ({members.length})
+                {t("members", { count: members.length })}
               </CardTitle>
             </CardHeader>
             <CardContent className="p-4 md:p-6 pt-0">
@@ -342,7 +372,7 @@ export function RoomClient({
                       </div>
                       <span className="font-medium text-sm md:text-base truncate flex-1">
                         {member.users?.name}
-                        {member.user_id === userId && " (You)"}
+                        {member.user_id === userId && ` (${t("you")})`}
                       </span>
                       {member.user_id === room.host_id && (
                         <Crown className="w-4 h-4 text-yellow-500 shrink-0" />
@@ -384,7 +414,7 @@ export function RoomClient({
                     <div className="flex items-center gap-3">
                       <Trophy className="w-8 h-8" />
                       <CardTitle className="text-xl md:text-2xl">
-                        Quiz Completed!
+                        {t("quizFinished")}
                       </CardTitle>
                     </div>
                   </CardHeader>
@@ -409,7 +439,7 @@ export function RoomClient({
                           <div>
                             <h3 className="text-xl md:text-2xl font-bold flex items-center gap-2">
                               <Popcorn className="w-6 h-6 text-yellow-500" />
-                              Tonight&apos;s Movie
+                              {t("winningMovie")}
                             </h3>
                             <p className="text-2xl md:text-3xl font-bold text-purple-600 dark:text-purple-400 mt-2">
                               {winningMovie.title}
@@ -434,8 +464,8 @@ export function RoomClient({
                               </p>
                               <span className="text-sm text-purple-500 dark:text-purple-400 group-hover:underline mt-1 inline-block">
                                 {showFullDescription
-                                  ? "Show less"
-                                  : "Show more"}
+                                  ? t("showLess")
+                                  : t("showMore")}
                               </span>
                             </button>
                           )}
@@ -444,7 +474,7 @@ export function RoomClient({
                     ) : (
                       <div className="text-center py-8">
                         <p className="text-lg text-muted-foreground">
-                          The quiz has finished! Time to watch the movie.
+                          {t("quizFinished")}
                         </p>
                       </div>
                     )}
@@ -457,7 +487,7 @@ export function RoomClient({
                         className="mt-6 pt-6 border-t"
                       >
                         <p className="text-sm text-muted-foreground mb-3">
-                          Want to pick another movie?
+                          {t("pickAnother")}
                         </p>
                         <Button
                           onClick={handleResetRoom}
@@ -468,9 +498,7 @@ export function RoomClient({
                           <RotateCcw
                             className={`w-4 h-4 ${isResetting ? "animate-spin" : ""}`}
                           />
-                          {isResetting
-                            ? "Resetting..."
-                            : "Start New Voting Round"}
+                          {isResetting ? t("resetting") : t("startVoting")}
                         </Button>
                       </motion.div>
                     )}

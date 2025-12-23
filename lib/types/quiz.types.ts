@@ -17,3 +17,11 @@ export type Answer = {
   is_correct: boolean;
   answered_at: string | null;
 };
+
+export type PlayerScore = {
+  userId: string;
+  userName: string;
+  correctAnswers: number;
+  totalQuestions: number;
+  score: number;
+};

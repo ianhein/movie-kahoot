@@ -2,3 +2,5 @@
 export * from "./database.types";
 export * from "./movie.types";
 export * from "./quiz.types";
+export * from "./tmdb.types";
+export * from "./component-props.types";

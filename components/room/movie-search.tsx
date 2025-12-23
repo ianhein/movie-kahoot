@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useTranslations, useLocale } from "next-intl";
 import { mutate } from "swr";
 import {
   Card,
@@ -21,19 +22,15 @@ import {
 import { proposeMovie } from "@/app/actions/movie-actions";
 import { createClient } from "@/lib/supabase/client";
 import { toast } from "sonner";
-
-interface MovieSearchProps {
-  roomId: string;
-  userId: string;
-  isHost: boolean;
-  onMovieProposed?: () => void;
-}
+import type { MovieSearchProps } from "@/lib/types";
 
 export function MovieSearch({
   roomId,
   userId,
   onMovieProposed,
 }: MovieSearchProps) {
+  const t = useTranslations("movieSearch");
+  const locale = useLocale();
   const [query, setQuery] = useState("");
   const [movies, setMovies] = useState<TMDBMovie[]>([]);
   const [isSearching, setIsSearching] = useState(false);
@@ -45,10 +42,10 @@ export function MovieSearch({
 
     setIsSearching(true);
     try {
-      const result = await searchMovies(query);
+      const result = await searchMovies(query, 1, locale);
       setMovies(result.results);
     } catch (error) {
-      toast.error("Failed to search movies");
+      toast.error(t("searchFailed"));
     } finally {
       setIsSearching(false);
     }
@@ -57,11 +54,11 @@ export function MovieSearch({
   const loadPopular = async () => {
     setIsSearching(true);
     try {
-      const result = await getPopularMovies();
+      const result = await getPopularMovies(1, locale);
       setMovies(result.results);
       setQuery("");
     } catch (error) {
-      toast.error("Failed to load popular movies");
+      toast.error(t("popularFailed"));
     } finally {
       setIsSearching(false);
     }
@@ -107,10 +104,10 @@ export function MovieSearch({
         // Notificar al padre
         onMovieProposed?.();
 
-        toast.success("Movie proposed!");
+        toast.success(t("proposed"));
       }
     } catch (error) {
-      toast.error("Failed to propose movie");
+      toast.error(t("proposeFailed"));
     } finally {
       setIsProposing(null);
     }
@@ -119,13 +116,13 @@ export function MovieSearch({
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Search Movies</CardTitle>
-        <CardDescription>Find a movie to watch together</CardDescription>
+        <CardTitle>{t("title")}</CardTitle>
+        <CardDescription>{t("description")}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         <form onSubmit={handleSearch} className="flex gap-2">
           <Input
-            placeholder="Search for a movie..."
+            placeholder={t("placeholder")}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             disabled={isSearching}
@@ -139,7 +136,7 @@ export function MovieSearch({
             onClick={loadPopular}
             disabled={isSearching}
           >
-            Popular
+            {t("popular")}
           </Button>
         </form>
 
@@ -185,7 +182,7 @@ export function MovieSearch({
                   disabled={isProposing === movie.id}
                 >
                   <Plus className="w-4 h-4 mr-1" />
-                  {isProposing === movie.id ? "..." : "Propose"}
+                  {isProposing === movie.id ? t("proposing") : t("propose")}
                 </Button>
               </div>
             ))}

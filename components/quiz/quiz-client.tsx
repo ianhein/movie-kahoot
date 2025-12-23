@@ -7,13 +7,7 @@ import { getRoomStatus } from "@/app/actions/room-actions";
 import { QuizHost } from "./quiz-host";
 import { QuizPlayer } from "./quiz-player";
 import { QuizResults } from "./quiz-results";
-import type { Room, Member } from "@/lib/types";
-
-interface QuizClientProps {
-  roomId: string;
-  initialRoom: Room;
-  initialMembers: Member[];
-}
+import type { Room, Member, QuizClientProps } from "@/lib/types";
 
 export function QuizClient({
   roomId,

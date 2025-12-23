@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
+import { useTranslations, useLocale } from "next-intl";
 import useSWR, { mutate } from "swr";
 import { motion, AnimatePresence } from "framer-motion";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -23,15 +24,10 @@ import {
   selectMovie,
   removeProposedMovie,
 } from "@/app/actions/movie-actions";
+import { getMovieDetails, getPosterUrl } from "@/lib/tmdb";
 import { toast } from "sonner";
-import type { RoomMovie } from "@/lib/types";
+import type { RoomMovie, ProposedMoviesProps } from "@/lib/types";
 import { MovieDetailsDialog } from "@/components/movie/movie-details-dialog";
-
-interface ProposedMoviesProps {
-  roomId: string;
-  userId: string;
-  isHost: boolean;
-}
 
 export function ProposedMovies({
   roomId,
@@ -39,7 +35,13 @@ export function ProposedMovies({
   isHost,
 }: ProposedMoviesProps) {
   const router = useRouter();
+  const t = useTranslations("room");
+  const tCommon = useTranslations("common");
+  const locale = useLocale();
   const [movies, setMovies] = useState<RoomMovie[]>([]);
+  const [localizedMovies, setLocalizedMovies] = useState<
+    Map<string, { title: string; overview: string | null }>
+  >(new Map());
   const [isLoading, setIsLoading] = useState(true);
   const [votingFor, setVotingFor] = useState<string | null>(null);
   const [selecting, setSelecting] = useState<string | null>(null);
@@ -96,6 +98,44 @@ export function ProposedMovies({
     }
   }, [moviesData]);
 
+  // Cargar traducciones de películas cuando cambie el locale o las películas
+  useEffect(() => {
+    const loadLocalizedData = async () => {
+      if (movies.length === 0) return;
+
+      const newLocalizedMovies = new Map<
+        string,
+        { title: string; overview: string | null }
+      >();
+
+      // Cargar en paralelo todos los detalles de TMDB
+      await Promise.all(
+        movies.map(async (roomMovie) => {
+          if (!roomMovie.movies?.id) return;
+          try {
+            const details = await getMovieDetails(roomMovie.movies.id, locale);
+            newLocalizedMovies.set(roomMovie.movies.id, {
+              title: details.title,
+              overview: details.overview,
+            });
+          } catch {
+            // Fallback a datos de BD si falla
+            if (roomMovie.movies) {
+              newLocalizedMovies.set(roomMovie.movies.id, {
+                title: roomMovie.movies.title,
+                overview: roomMovie.movies.overview,
+              });
+            }
+          }
+        })
+      );
+
+      setLocalizedMovies(newLocalizedMovies);
+    };
+
+    loadLocalizedData();
+  }, [movies, locale]);
+
   // Suscribirse a broadcast para actualizaciones instantáneas
   useEffect(() => {
     const supabase = createClient();
@@ -141,14 +181,14 @@ export function ProposedMovies({
       if (result.error) {
         toast.error(result.error);
       } else {
-        toast.success(vote ? "Voted yes! 👍" : "Voted no 👎");
+        toast.success(vote ? `${tCommon("yes")}! 👍` : `${tCommon("no")} 👎`);
         // Notificar a todos los clientes
         broadcastMoviesUpdate();
         // También revalidar localmente
         mutate(`proposed-movies-${roomId}`);
       }
     } catch {
-      toast.error("Failed to vote");
+      toast.error(t("voteFailed"));
     } finally {
       setVotingFor(null);
     }
@@ -162,7 +202,7 @@ export function ProposedMovies({
         toast.error(result.error);
         setSelecting(null);
       } else {
-        toast.success("Movie selected! Starting quiz...");
+        toast.success(t("startingQuiz"));
 
         // Enviar broadcast a todos los miembros de la sala usando canal dedicado
         const supabase = createClient();
@@ -182,7 +222,7 @@ export function ProposedMovies({
         router.push(`/room/${roomId}/quiz`);
       }
     } catch {
-      toast.error("Failed to select movie");
+      toast.error(t("selectFailed"));
       setSelecting(null);
     }
   };
@@ -212,13 +252,13 @@ export function ProposedMovies({
         // Notificar a todos los clientes y revalidar localmente
         await broadcastMoviesUpdate();
         await mutate(`proposed-movies-${roomId}`);
-        toast.success("Movie removed");
+        toast.success(t("movieRemoved", { title: movieToRemove.title }));
         setRemoving(null);
         setRemoveDialogOpen(false);
         setMovieToRemove(null);
       }
     } catch {
-      toast.error("Failed to remove movie");
+      toast.error(t("removeFailed"));
       setRemoving(null);
       setRemoveDialogOpen(false);
       setMovieToRemove(null);
@@ -244,7 +284,7 @@ export function ProposedMovies({
     return (
       <Card>
         <CardContent className="py-8 text-center text-muted-foreground">
-          Loading proposed movies...
+          {tCommon("loading")}
         </CardContent>
       </Card>
     );
@@ -254,7 +294,7 @@ export function ProposedMovies({
     return (
       <Card>
         <CardContent className="py-8 text-center text-muted-foreground">
-          No movies proposed yet. Search and propose a movie!
+          {t("noMoviesYet")}. {t("beFirstToPropose")}
         </CardContent>
       </Card>
     );
@@ -263,7 +303,9 @@ export function ProposedMovies({
   return (
     <Card>
       <CardHeader className="p-4 md:p-6">
-        <CardTitle className="text-base md:text-lg">Proposed Movies</CardTitle>
+        <CardTitle className="text-base md:text-lg">
+          {t("proposedMovies")}
+        </CardTitle>
       </CardHeader>
       <CardContent className="p-4 md:p-6 pt-0 space-y-3">
         <AnimatePresence>
@@ -274,6 +316,9 @@ export function ProposedMovies({
             const { upvotes, downvotes } = getVoteCount(roomMovie);
             const movie = roomMovie.movies;
             const isImageLoading = loadingImages.has(roomMovie.id);
+            const localized = localizedMovies.get(movie.id);
+            const displayTitle = localized?.title || movie.title;
+            const displayOverview = localized?.overview || movie.overview;
 
             return (
               <motion.div
@@ -302,7 +347,7 @@ export function ProposedMovies({
                     )}
                     <img
                       src={movie.poster_url}
-                      alt={movie.title}
+                      alt={displayTitle}
                       className={`w-full h-full object-cover rounded ${
                         isImageLoading ? "opacity-0" : "opacity-100"
                       } transition-opacity duration-300`}
@@ -319,7 +364,7 @@ export function ProposedMovies({
                   <div className="flex items-start justify-between gap-1 md:gap-2">
                     <div className="min-w-0 flex-1">
                       <h3 className="font-semibold text-sm md:text-base truncate">
-                        {movie.title}
+                        {displayTitle}
                       </h3>
                       {movie.year && (
                         <p className="text-xs md:text-sm text-muted-foreground">
@@ -334,7 +379,7 @@ export function ProposedMovies({
                           variant="ghost"
                           className="h-6 w-6 p-0 hover:bg-destructive hover:text-destructive-foreground"
                           onClick={(e) =>
-                            handleRemoveMovie(roomMovie.id, movie.title, e)
+                            handleRemoveMovie(roomMovie.id, displayTitle, e)
                           }
                           disabled={removing === roomMovie.id}
                         >
@@ -372,7 +417,7 @@ export function ProposedMovies({
                     </div>
                   </div>
                   <p className="text-xs md:text-sm text-muted-foreground mt-1 md:mt-2 line-clamp-2 hidden sm:block">
-                    {movie.overview}
+                    {displayOverview}
                   </p>
                   <div className="flex flex-wrap gap-1.5 md:gap-2 mt-2 md:mt-3">
                     <motion.div
@@ -392,7 +437,9 @@ export function ProposedMovies({
                         className="h-8 text-xs md:text-sm"
                       >
                         <ThumbsUp className="w-3 h-3 md:w-4 md:h-4 md:mr-1" />
-                        <span className="hidden sm:inline">Yes</span>
+                        <span className="hidden sm:inline">
+                          {tCommon("yes")}
+                        </span>
                       </Button>
                     </motion.div>
                     <motion.div
@@ -412,7 +459,9 @@ export function ProposedMovies({
                         className="h-8 text-xs md:text-sm"
                       >
                         <ThumbsDown className="w-3 h-3 md:w-4 md:h-4 md:mr-1" />
-                        <span className="hidden sm:inline">No</span>
+                        <span className="hidden sm:inline">
+                          {tCommon("no")}
+                        </span>
                       </Button>
                     </motion.div>
                     {isHost && (
@@ -434,10 +483,10 @@ export function ProposedMovies({
                           <Check className="w-3 h-3 md:w-4 md:h-4 md:mr-1" />
                           <span className="hidden md:inline">
                             {selecting === roomMovie.id
-                              ? "Selecting..."
-                              : "Select & Start Quiz"}
+                              ? t("selecting")
+                              : t("selectAndStart")}
                           </span>
-                          <span className="md:hidden">Select</span>
+                          <span className="md:hidden">{t("select")}</span>
                         </Button>
                       </motion.div>
                     )}
@@ -475,11 +524,9 @@ export function ProposedMovies({
           }}
         >
           <DialogHeader>
-            <DialogTitle>Remove Movie?</DialogTitle>
+            <DialogTitle>{t("confirmRemove")}</DialogTitle>
             <DialogDescription>
-              Are you sure you want to remove &ldquo;
-              {movieToRemove?.title}&rdquo; from the proposed movies? This
-              action cannot be undone.
+              {t("confirmRemoveDesc", { title: movieToRemove?.title || "" })}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -488,7 +535,7 @@ export function ProposedMovies({
               onClick={() => setRemoveDialogOpen(false)}
               disabled={removing === movieToRemove?.id}
             >
-              Cancel
+              {tCommon("cancel")}
             </Button>
             <Button
               variant="destructive"
@@ -498,10 +545,10 @@ export function ProposedMovies({
               {removing === movieToRemove?.id ? (
                 <>
                   <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  Removing...
+                  {t("removing")}
                 </>
               ) : (
-                "Remove"
+                t("remove")
               )}
             </Button>
           </DialogFooter>

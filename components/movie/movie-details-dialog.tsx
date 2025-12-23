@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { useTranslations, useLocale } from "next-intl";
 import {
   Dialog,
   DialogContent,
@@ -15,22 +16,21 @@ import {
   getMovieCredits,
   getPosterUrl,
   getBackdropUrl,
-  type TMDBMovieDetails,
-  type TMDBCredits,
 } from "@/lib/tmdb";
 import { toast } from "sonner";
-
-interface MovieDetailsDialogProps {
-  movieId: string | null;
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-}
+import type {
+  MovieDetailsDialogProps,
+  TMDBMovieDetails,
+  TMDBCredits,
+} from "@/lib/types";
 
 export function MovieDetailsDialog({
   movieId,
   open,
   onOpenChange,
 }: MovieDetailsDialogProps) {
+  const t = useTranslations("movieDetails");
+  const locale = useLocale();
   const [details, setDetails] = useState<TMDBMovieDetails | null>(null);
   const [credits, setCredits] = useState<TMDBCredits | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -40,19 +40,19 @@ export function MovieDetailsDialog({
       setIsLoading(true);
       try {
         const [detailsData, creditsData] = await Promise.all([
-          getMovieDetails(id),
+          getMovieDetails(id, locale),
           getMovieCredits(id),
         ]);
         setDetails(detailsData);
         setCredits(creditsData);
       } catch {
-        toast.error("Error al cargar detalles de la película");
+        toast.error(t("loadFailed"));
         onOpenChange(false);
       } finally {
         setIsLoading(false);
       }
     },
-    [onOpenChange]
+    [onOpenChange, locale, t]
   );
 
   useEffect(() => {
@@ -74,7 +74,7 @@ export function MovieDetailsDialog({
         {isLoading ? (
           <>
             <DialogHeader>
-              <DialogTitle>Cargando detalles...</DialogTitle>
+              <DialogTitle>{t("loading")}</DialogTitle>
             </DialogHeader>
             <div className="space-y-4">
               <Skeleton className="h-8 w-3/4" />
@@ -131,7 +131,7 @@ export function MovieDetailsDialog({
                   <Badge variant="outline" className="gap-1.5">
                     <Calendar className="w-4 h-4" />
                     {new Date(details.release_date).toLocaleDateString(
-                      "es-ES",
+                      locale === "es" ? "es-ES" : "en-US",
                       {
                         year: "numeric",
                         month: "long",
@@ -163,7 +163,7 @@ export function MovieDetailsDialog({
               {/* Descripción */}
               {details.overview && (
                 <div className="space-y-2">
-                  <h3 className="text-lg font-semibold">Sinopsis</h3>
+                  <h3 className="text-lg font-semibold">{t("overview")}</h3>
                   <p className="text-muted-foreground leading-relaxed">
                     {details.overview}
                   </p>
@@ -175,7 +175,7 @@ export function MovieDetailsDialog({
                 <div className="space-y-2">
                   <div className="flex items-center gap-2 text-sm">
                     <Film className="w-4 h-4 text-muted-foreground" />
-                    <span className="font-semibold">Director:</span>
+                    <span className="font-semibold">{t("director")}:</span>
                     <span className="text-muted-foreground">
                       {director.name}
                     </span>
@@ -188,7 +188,7 @@ export function MovieDetailsDialog({
                 <div className="space-y-2">
                   <div className="flex items-center gap-2 text-sm">
                     <User className="w-4 h-4 text-muted-foreground" />
-                    <span className="font-semibold">Reparto principal:</span>
+                    <span className="font-semibold">{t("cast")}:</span>
                   </div>
                   <div className="flex flex-wrap gap-2">
                     {mainCast.map((actor) => (

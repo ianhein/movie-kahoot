@@ -1,29 +1,32 @@
+import type {
+  TMDBMovie,
+  TMDBSearchResponse,
+  TMDBMovieDetails,
+  TMDBCredits,
+} from "@/lib/types";
+
 const TMDB_API_KEY =
   process.env.TMDB_API_KEY || process.env.NEXT_PUBLIC_TMDB_API_KEY;
 const TMDB_BASE_URL = "https://api.themoviedb.org/3";
 const TMDB_IMAGE_BASE = "https://image.tmdb.org/t/p";
 
-export interface TMDBMovie {
-  id: number;
-  title: string;
-  overview: string;
-  poster_path: string | null;
-  backdrop_path: string | null;
-  release_date: string;
-  vote_average: number;
-  popularity: number;
+// Convert app locale to TMDB language code
+function getTMDBLanguage(locale?: string): string {
+  const languageMap: Record<string, string> = {
+    es: "es-ES",
+    en: "en-US",
+  };
+  return languageMap[locale || "es"] || "es-ES";
 }
 
-export interface TMDBSearchResponse {
-  page: number;
-  results: TMDBMovie[];
-  total_pages: number;
-  total_results: number;
-}
+// Re-export types for convenience
+export type { TMDBMovie, TMDBSearchResponse, TMDBMovieDetails, TMDBCredits };
+export type { TMDBCast, TMDBCrew } from "@/lib/types";
 
 export async function searchMovies(
   query: string,
-  page = 1
+  page = 1,
+  locale?: string
 ): Promise<TMDBSearchResponse> {
   if (!TMDB_API_KEY) {
     throw new Error("TMDB API key not configured");
@@ -33,7 +36,7 @@ export async function searchMovies(
   url.searchParams.append("api_key", TMDB_API_KEY);
   url.searchParams.append("query", query);
   url.searchParams.append("page", page.toString());
-  url.searchParams.append("language", "es-ES");
+  url.searchParams.append("language", getTMDBLanguage(locale));
 
   const response = await fetch(url.toString());
   if (!response.ok) {
@@ -43,7 +46,10 @@ export async function searchMovies(
   return response.json();
 }
 
-export async function getPopularMovies(page = 1): Promise<TMDBSearchResponse> {
+export async function getPopularMovies(
+  page = 1,
+  locale?: string
+): Promise<TMDBSearchResponse> {
   if (!TMDB_API_KEY) {
     throw new Error("TMDB API key not configured");
   }
@@ -51,7 +57,7 @@ export async function getPopularMovies(page = 1): Promise<TMDBSearchResponse> {
   const url = new URL(`${TMDB_BASE_URL}/movie/popular`);
   url.searchParams.append("api_key", TMDB_API_KEY);
   url.searchParams.append("page", page.toString());
-  url.searchParams.append("language", "es-ES");
+  url.searchParams.append("language", getTMDBLanguage(locale));
 
   const response = await fetch(url.toString());
   if (!response.ok) {
@@ -77,22 +83,9 @@ export function getBackdropUrl(
   return `${TMDB_IMAGE_BASE}/${size}${path}`;
 }
 
-// Movie Details
-export interface TMDBMovieDetails extends TMDBMovie {
-  budget: number;
-  genres: Array<{ id: number; name: string }>;
-  imdb_id: string | null;
-  production_companies: Array<{ id: number; name: string }>;
-  production_countries: Array<{ iso_3166_1: string; name: string }>;
-  revenue: number;
-  runtime: number | null;
-  spoken_languages: Array<{ iso_639_1: string; name: string }>;
-  status: string;
-  tagline: string | null;
-}
-
 export async function getMovieDetails(
-  movieId: string
+  movieId: string,
+  locale?: string
 ): Promise<TMDBMovieDetails> {
   if (!TMDB_API_KEY) {
     throw new Error("TMDB API key not configured");
@@ -100,7 +93,7 @@ export async function getMovieDetails(
 
   const url = new URL(`${TMDB_BASE_URL}/movie/${movieId}`);
   url.searchParams.append("api_key", TMDB_API_KEY);
-  url.searchParams.append("language", "es-ES");
+  url.searchParams.append("language", getTMDBLanguage(locale));
 
   const response = await fetch(url.toString());
   if (!response.ok) {
@@ -108,29 +101,6 @@ export async function getMovieDetails(
   }
 
   return response.json();
-}
-
-// Movie Credits (Cast & Crew)
-export interface TMDBCast {
-  id: number;
-  name: string;
-  character: string;
-  profile_path: string | null;
-  order: number;
-}
-
-export interface TMDBCrew {
-  id: number;
-  name: string;
-  job: string;
-  department: string;
-  profile_path: string | null;
-}
-
-export interface TMDBCredits {
-  id: number;
-  cast: TMDBCast[];
-  crew: TMDBCrew[];
 }
 
 export async function getMovieCredits(movieId: string): Promise<TMDBCredits> {
@@ -150,9 +120,9 @@ export async function getMovieCredits(movieId: string): Promise<TMDBCredits> {
 }
 
 // Obtener todo lo necesario para mostrar info de la película
-export async function getMovieQuizData(movieId: string) {
+export async function getMovieQuizData(movieId: string, locale?: string) {
   const [details, credits] = await Promise.all([
-    getMovieDetails(movieId),
+    getMovieDetails(movieId, locale),
     getMovieCredits(movieId),
   ]);
 

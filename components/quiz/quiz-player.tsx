@@ -12,16 +12,9 @@ import {
   getPublishedQuestions,
 } from "@/app/actions/quiz-actions";
 import { toast } from "sonner";
-import type { Room, Question } from "@/lib/types";
+import type { Question, QuizPlayerProps } from "@/lib/types";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { useConfetti } from "@/lib/hooks/use-confetti";
-
-interface QuizPlayerProps {
-  roomId: string;
-  room: Room;
-  userId: string;
-  userName: string | null;
-}
 
 export function QuizPlayer({ roomId, userId }: QuizPlayerProps) {
   const [allQuestions, setAllQuestions] = useState<Question[]>([]);

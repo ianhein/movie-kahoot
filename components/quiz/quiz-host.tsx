@@ -40,16 +40,8 @@ import {
   getQuestionAnswers,
 } from "@/app/actions/quiz-actions";
 import { toast } from "sonner";
-import type { Room, QuizMember, Question, Answer } from "@/lib/types";
+import type { Question, Answer, QuizHostProps } from "@/lib/types";
 import { ThemeToggle } from "@/components/theme-toggle";
-
-interface QuizHostProps {
-  roomId: string;
-  room: Room;
-  members: QuizMember[];
-  userId: string;
-  userName: string | null;
-}
 
 // Helper para formatear tiempo
 const formatTime = (seconds: number) => {
