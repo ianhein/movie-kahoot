@@ -21,7 +21,6 @@
   "home": {
     "title": "Kahoovie",
     "description": "Watch movies with friends and compete with fun quizzes!",
-    "testConnection": "Test Connection",
     "createRoom": "Create Room",
     "joinRoom": "Join Room",
     "createTitle": "Create a New Room",
@@ -37,9 +36,7 @@
     "enterName": "Please enter your name",
     "enterNameAndCode": "Please enter your name and room code",
     "createFailed": "Failed to create room",
-    "joinFailed": "Failed to join room",
-    "connectionFailed": "Connection failed: {error}",
-    "testFailed": "Test failed"
+    "joinFailed": "Failed to join room"
   },
   "room": {
     "title": "Kahoovie",

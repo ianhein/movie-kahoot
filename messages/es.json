@@ -21,7 +21,6 @@
   "home": {
     "title": "Kahoovie",
     "description": "¡Mira películas con amigos y compite con divertidos quizzes!",
-    "testConnection": "Probar Conexión",
     "createRoom": "Crear Sala",
     "joinRoom": "Unirse a Sala",
     "createTitle": "Crear una Nueva Sala",
@@ -37,9 +36,7 @@
     "enterName": "Por favor ingresa tu nombre",
     "enterNameAndCode": "Por favor ingresa tu nombre y código de sala",
     "createFailed": "Error al crear sala",
-    "joinFailed": "Error al unirse a la sala",
-    "connectionFailed": "Conexión fallida: {error}",
-    "testFailed": "Prueba fallida"
+    "joinFailed": "Error al unirse a la sala"
   },
   "room": {
     "title": "Kahoovie",

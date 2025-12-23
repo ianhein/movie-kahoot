@@ -14,8 +14,7 @@ import {
 } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { createRoom, joinRoom } from "@/app/actions/room-actions";
-import { testConnection } from "@/app/actions/test-connection";
-import { Film, Users, TestTube } from "lucide-react";
+import { Film, Users } from "lucide-react";
 import { toast } from "sonner";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { LanguageSwitcher } from "@/components/language-switcher";
@@ -27,26 +26,6 @@ export function HomeClient() {
   const [createName, setCreateName] = useState("");
   const [joinName, setJoinName] = useState("");
   const [roomCode, setRoomCode] = useState("");
-
-  const handleTestConnection = async () => {
-    setIsLoading(true);
-    try {
-      const result = await testConnection();
-      if (result.success) {
-        toast.success(result.message);
-      } else {
-        toast.error(
-          t("connectionFailed", { error: result.error || "Unknown error" })
-        );
-        console.error("Connection test details:", result.details);
-      }
-    } catch (error) {
-      toast.error(t("testFailed"));
-      console.error(error);
-    } finally {
-      setIsLoading(false);
-    }
-  };
 
   const handleCreateRoom = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -124,16 +103,6 @@ export function HomeClient() {
           <p className="text-sm md:text-base text-muted-foreground px-4">
             {t("description")}
           </p>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleTestConnection}
-            disabled={isLoading}
-            className="mt-2"
-          >
-            <TestTube className="w-4 h-4 mr-2" />
-            {t("testConnection")}
-          </Button>
         </div>
 
         <Tabs defaultValue="create" className="w-full">
