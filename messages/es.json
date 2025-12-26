@@ -56,6 +56,7 @@
     "selectAndStart": "Seleccionar e iniciar quiz",
     "selectFailed": "Error al seleccionar película",
     "voteFailed": "Error al votar",
+    "voteRemoved": "Voto eliminado",
     "remove": "Eliminar",
     "removing": "Eliminando...",
     "startVoting": "Iniciar nueva votación",
@@ -80,7 +81,17 @@
     "page": "Página {page} de {total}",
     "rank": "Puesto #{position}",
     "rankFirst": "1° - ¡Líder!",
-    "proposedBy": "Propuesto por {name}"
+    "proposedBy": "Propuesto por {name}",
+    "votedYes": "Voté sí",
+    "votedNo": "Voté no",
+    "quickVote": "Voto rápido",
+    "swipeInstructions": "Deslizá a la derecha para Sí, izquierda para No",
+    "allMoviesVoted": "¡Ya votaste todas las películas!",
+    "votingComplete": "¡Votación completada!",
+    "votedCount": "Votaste {count} {count, plural, one {película} other {películas}}",
+    "voteAgain": "Votar de nuevo",
+    "backToList": "Volver a la lista",
+    "noDescription": "Sin descripción disponible"
   },
   "movieSearch": {
     "title": "Buscar Películas",

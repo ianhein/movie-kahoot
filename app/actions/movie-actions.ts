@@ -147,14 +147,36 @@ export async function voteForMovie(
 ) {
   const supabase = createAdminClient();
 
-  const { error } = await supabase.from("movie_votes").upsert({
-    room_movie_id: roomMovieId,
-    user_id: userId,
-    vote,
-  });
+  // Verificar si ya existe un voto igual (para toggle)
+  const { data: existingVote } = await supabase
+    .from("movie_votes")
+    .select("vote")
+    .eq("room_movie_id", roomMovieId)
+    .eq("user_id", userId)
+    .single();
 
-  if (error) {
-    return { error: "Failed to vote" };
+  // Si el voto es igual al existente, eliminar (toggle off)
+  if (existingVote && existingVote.vote === vote) {
+    const { error } = await supabase
+      .from("movie_votes")
+      .delete()
+      .eq("room_movie_id", roomMovieId)
+      .eq("user_id", userId);
+
+    if (error) {
+      return { error: "Failed to remove vote" };
+    }
+  } else {
+    // Si no existe o es diferente, upsert
+    const { error } = await supabase.from("movie_votes").upsert({
+      room_movie_id: roomMovieId,
+      user_id: userId,
+      vote,
+    });
+
+    if (error) {
+      return { error: "Failed to vote" };
+    }
   }
 
   // Obtener room_id para revalidar
@@ -168,7 +190,7 @@ export async function voteForMovie(
     updateTag(`room-movies-${roomMovie.room_id}`);
   }
 
-  return { success: true };
+  return { success: true, removed: existingVote?.vote === vote };
 }
 
 export async function removeProposedMovie(roomId: string, roomMovieId: string) {

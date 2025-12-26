@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { useTranslations, useLocale } from "next-intl";
 import useSWR, { mutate } from "swr";
@@ -32,7 +32,9 @@ import {
   Loader2,
   X,
   Trophy,
-  User,
+  CheckCircle2,
+  Users,
+  Zap,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import {
@@ -41,16 +43,18 @@ import {
   selectMovie,
   removeProposedMovie,
 } from "@/app/actions/movie-actions";
-import { getMovieDetails, getPosterUrl } from "@/lib/tmdb";
+import { getMovieDetails } from "@/lib/tmdb";
 import { getAvatar } from "@/lib/utils/avatars";
 import { toast } from "sonner";
 import type { RoomMovie, ProposedMoviesProps } from "@/lib/types";
 import { MovieDetailsDialog } from "@/components/movie/movie-details-dialog";
+import { QuickVote } from "@/components/room/quick-vote";
 
 export function ProposedMovies({
   roomId,
   userId,
   isHost,
+  totalMembers,
 }: ProposedMoviesProps) {
   const router = useRouter();
   const t = useTranslations("room");
@@ -73,6 +77,7 @@ export function ProposedMovies({
     title: string;
   } | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
+  const [quickVoteMode, setQuickVoteMode] = useState(false);
   const MOVIES_PER_PAGE = 3;
 
   // Función para calcular la puntuación de ranking de una película
@@ -101,7 +106,8 @@ export function ProposedMovies({
 
       // 3. Desempate final: película propuesta primero (más antigua)
       return (
-        new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+        new Date(a.created_at || 0).getTime() -
+        new Date(b.created_at || 0).getTime()
       );
     });
   }, [movies]);
@@ -252,6 +258,18 @@ export function ProposedMovies({
     supabase.removeChannel(channel);
   };
 
+  // Función de voto para QuickVote (sin toasts locales)
+  const handleQuickVote = async (roomMovieId: string, vote: boolean) => {
+    const result = await voteForMovie(roomMovieId, userId, vote);
+    if (result.error) {
+      throw new Error(result.error);
+    }
+    // Notificar a todos los clientes
+    broadcastMoviesUpdate();
+    // También revalidar localmente
+    mutate(`proposed-movies-${roomId}`);
+  };
+
   const handleVote = async (roomMovieId: string, vote: boolean) => {
     setVotingFor(roomMovieId);
     try {
@@ -259,7 +277,11 @@ export function ProposedMovies({
       if (result.error) {
         toast.error(result.error);
       } else {
-        toast.success(vote ? `${tCommon("yes")}! 👍` : `${tCommon("no")} 👎`);
+        if (result.removed) {
+          toast.success(t("voteRemoved"));
+        } else {
+          toast.success(vote ? `${tCommon("yes")}! 👍` : `${tCommon("no")} 👎`);
+        }
         // Notificar a todos los clientes
         broadcastMoviesUpdate();
         // También revalidar localmente
@@ -350,7 +372,8 @@ export function ProposedMovies({
   const getVoteCount = (roomMovie: RoomMovie) => {
     const upvotes = roomMovie.movie_votes.filter((v) => v.vote).length;
     const downvotes = roomMovie.movie_votes.filter((v) => !v.vote).length;
-    return { upvotes, downvotes };
+    const totalVotes = roomMovie.movie_votes.length;
+    return { upvotes, downvotes, totalVotes };
   };
 
   const handleOpenDetails = (movieId: string) => {
@@ -378,12 +401,46 @@ export function ProposedMovies({
     );
   }
 
+  // Contar películas sin votar
+  const unvotedCount = movies.filter(
+    (m) => !m.movie_votes.some((v) => v.user_id === userId)
+  ).length;
+
+  // Modo votación rápida
+  if (quickVoteMode) {
+    return (
+      <QuickVote
+        movies={movies}
+        userId={userId}
+        localizedMovies={localizedMovies}
+        onVote={handleQuickVote}
+        onBack={() => setQuickVoteMode(false)}
+      />
+    );
+  }
+
   return (
     <Card>
       <CardHeader className="p-4 md:p-6">
-        <CardTitle className="text-base md:text-lg">
-          {t("proposedMovies")} ({movies.length})
-        </CardTitle>
+        <div className="flex items-center justify-between gap-2">
+          <CardTitle className="text-base md:text-lg">
+            {t("proposedMovies")} ({movies.length})
+          </CardTitle>
+          {unvotedCount > 0 && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setQuickVoteMode(true)}
+              className="gap-1.5 text-xs md:text-sm"
+            >
+              <Zap className="w-3.5 h-3.5 text-yellow-500" />
+              <span className="hidden sm:inline">{t("quickVote")}</span>
+              <Badge variant="secondary" className="ml-1 text-xs">
+                {unvotedCount}
+              </Badge>
+            </Button>
+          )}
+        </div>
       </CardHeader>
       <CardContent className="p-4 md:p-6 pt-0 space-y-3 overflow-hidden">
         <AnimatePresence mode="wait">
@@ -391,7 +448,7 @@ export function ProposedMovies({
             if (!roomMovie.movies) return null;
 
             const userVote = getUserVote(roomMovie);
-            const { upvotes, downvotes } = getVoteCount(roomMovie);
+            const { upvotes, downvotes, totalVotes } = getVoteCount(roomMovie);
             const movie = roomMovie.movies;
             const isImageLoading = loadingImages.has(roomMovie.id);
             const localized = localizedMovies.get(movie.id);
@@ -464,7 +521,7 @@ export function ProposedMovies({
                           {displayTitle}
                         </h3>
                       </div>
-                      <div className="flex items-center gap-1.5 md:gap-2 mt-0.5">
+                      <div className="flex items-center gap-1.5 md:gap-2 mt-0.5 flex-wrap">
                         {movie.year && (
                           <span className="text-xs md:text-sm text-muted-foreground">
                             {movie.year}
@@ -489,6 +546,22 @@ export function ProposedMovies({
                                   : roomMovie.users.name}
                               </span>
                             </div>
+                          </>
+                        )}
+                        {userVote && (
+                          <>
+                            <span className="text-muted-foreground text-xs hidden sm:inline">
+                              •
+                            </span>
+                            <Badge
+                              variant={
+                                userVote.vote ? "default" : "destructive"
+                              }
+                              className="text-[10px] md:text-xs px-1.5 py-0 h-5 gap-0.5"
+                            >
+                              <CheckCircle2 className="w-2.5 h-2.5 md:w-3 md:h-3" />
+                              {userVote.vote ? t("votedYes") : t("votedNo")}
+                            </Badge>
                           </>
                         )}
                       </div>
@@ -535,6 +608,13 @@ export function ProposedMovies({
                           {downvotes}
                         </Badge>
                       </motion.div>
+                      <Badge
+                        variant="outline"
+                        className="gap-0.5 md:gap-1 text-[10px] md:text-xs px-1 md:px-1.5"
+                      >
+                        <Users className="w-2.5 h-2.5 md:w-3 md:h-3" />
+                        {totalVotes}/{totalMembers}
+                      </Badge>
                     </div>
                   </div>
                   <p className="text-xs md:text-sm text-muted-foreground mt-1 md:mt-2 line-clamp-2 hidden sm:block">

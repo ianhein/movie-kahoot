@@ -12,6 +12,7 @@ export interface ProposedMoviesProps {
   roomId: string;
   userId: string;
   isHost: boolean;
+  totalMembers: number;
 }
 
 export interface MovieSearchProps {

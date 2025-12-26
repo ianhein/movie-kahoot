@@ -56,6 +56,7 @@
     "selectAndStart": "Select & Start Quiz",
     "selectFailed": "Failed to select movie",
     "voteFailed": "Failed to vote",
+    "voteRemoved": "Vote removed",
     "remove": "Remove",
     "removing": "Removing...",
     "startVoting": "Start New Voting Round",
@@ -80,7 +81,17 @@
     "page": "Page {page} of {total}",
     "rank": "Rank #{position}",
     "rankFirst": "1st - Leading!",
-    "proposedBy": "Proposed by {name}"
+    "proposedBy": "Proposed by {name}",
+    "votedYes": "Voted yes",
+    "votedNo": "Voted no",
+    "quickVote": "Quick Vote",
+    "swipeInstructions": "Swipe right for Yes, left for No",
+    "allMoviesVoted": "You've voted on all movies!",
+    "votingComplete": "Voting complete!",
+    "votedCount": "You voted on {count} {count, plural, one {movie} other {movies}}",
+    "voteAgain": "Vote again",
+    "backToList": "Back to list",
+    "noDescription": "No description available"
   },
   "movieSearch": {
     "title": "Search Movies",

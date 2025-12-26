@@ -399,6 +399,7 @@ export function RoomClient({
                   roomId={roomId}
                   userId={userId}
                   isHost={isHost}
+                  totalMembers={members.length}
                 />
               </>
             )}
