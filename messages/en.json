@@ -74,7 +74,10 @@
     "codeCopied": "Room code copied!",
     "roomReset": "Room reset! Start proposing movies again.",
     "resetFailed": "Failed to reset room",
-    "pickAnother": "Want to pick another movie?"
+    "pickAnother": "Want to pick another movie?",
+    "previousPage": "Previous page",
+    "nextPage": "Next page",
+    "page": "Page {page} of {total}"
   },
   "movieSearch": {
     "title": "Search Movies",

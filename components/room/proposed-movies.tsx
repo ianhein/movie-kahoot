@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { useTranslations, useLocale } from "next-intl";
 import useSWR, { mutate } from "swr";
@@ -16,6 +16,14 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  Pagination,
+  PaginationContent,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+} from "@/components/ui/pagination";
 import { ThumbsUp, ThumbsDown, Check, Film, Loader2, X } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import {
@@ -54,6 +62,26 @@ export function ProposedMovies({
     id: string;
     title: string;
   } | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const MOVIES_PER_PAGE = 3;
+
+  // Calcular películas paginadas
+  const { paginatedMovies, totalPages } = useMemo(() => {
+    const total = Math.ceil(movies.length / MOVIES_PER_PAGE);
+    const start = (currentPage - 1) * MOVIES_PER_PAGE;
+    const end = start + MOVIES_PER_PAGE;
+    return {
+      paginatedMovies: movies.slice(start, end),
+      totalPages: total,
+    };
+  }, [movies, currentPage]);
+
+  // Ajustar página si se eliminan películas y la página actual queda vacía
+  useEffect(() => {
+    if (currentPage > 1 && paginatedMovies.length === 0 && movies.length > 0) {
+      setCurrentPage(Math.ceil(movies.length / MOVIES_PER_PAGE));
+    }
+  }, [movies.length, currentPage, paginatedMovies.length]);
 
   // SWR para películas propuestas - polling + broadcast para actualizaciones instantáneas
   const { data: moviesData } = useSWR(
@@ -304,12 +332,12 @@ export function ProposedMovies({
     <Card>
       <CardHeader className="p-4 md:p-6">
         <CardTitle className="text-base md:text-lg">
-          {t("proposedMovies")}
+          {t("proposedMovies")} ({movies.length})
         </CardTitle>
       </CardHeader>
-      <CardContent className="p-4 md:p-6 pt-0 space-y-3">
-        <AnimatePresence>
-          {movies.map((roomMovie, index) => {
+      <CardContent className="p-4 md:p-6 pt-0 space-y-3 overflow-hidden">
+        <AnimatePresence mode="wait">
+          {paginatedMovies.map((roomMovie, index) => {
             if (!roomMovie.movies) return null;
 
             const userVote = getUserVote(roomMovie);
@@ -496,6 +524,42 @@ export function ProposedMovies({
             );
           })}
         </AnimatePresence>
+
+        {/* Paginación */}
+        {totalPages > 1 && (
+          <Pagination className="mt-4">
+            <PaginationContent>
+              <PaginationItem>
+                <PaginationPrevious
+                  onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                  disabled={currentPage === 1}
+                  aria-label={t("previousPage")}
+                />
+              </PaginationItem>
+              {Array.from({ length: totalPages }, (_, i) => i + 1).map(
+                (page) => (
+                  <PaginationItem key={page}>
+                    <PaginationLink
+                      onClick={() => setCurrentPage(page)}
+                      isActive={currentPage === page}
+                    >
+                      {page}
+                    </PaginationLink>
+                  </PaginationItem>
+                )
+              )}
+              <PaginationItem>
+                <PaginationNext
+                  onClick={() =>
+                    setCurrentPage((p) => Math.min(totalPages, p + 1))
+                  }
+                  disabled={currentPage === totalPages}
+                  aria-label={t("nextPage")}
+                />
+              </PaginationItem>
+            </PaginationContent>
+          </Pagination>
+        )}
       </CardContent>
 
       <MovieDetailsDialog

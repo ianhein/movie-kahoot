@@ -74,7 +74,10 @@
     "codeCopied": "¡Código de sala copiado!",
     "roomReset": "¡Sala reiniciada! Proponé películas nuevamente.",
     "resetFailed": "Error al reiniciar la sala",
-    "pickAnother": "¿Querés elegir otra película?"
+    "pickAnother": "¿Querés elegir otra película?",
+    "previousPage": "Página anterior",
+    "nextPage": "Página siguiente",
+    "page": "Página {page} de {total}"
   },
   "movieSearch": {
     "title": "Buscar Películas",
