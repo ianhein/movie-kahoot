@@ -77,7 +77,10 @@
     "pickAnother": "¿Querés elegir otra película?",
     "previousPage": "Página anterior",
     "nextPage": "Página siguiente",
-    "page": "Página {page} de {total}"
+    "page": "Página {page} de {total}",
+    "rank": "Puesto #{position}",
+    "rankFirst": "1° - ¡Líder!",
+    "proposedBy": "Propuesto por {name}"
   },
   "movieSearch": {
     "title": "Buscar Películas",
@@ -92,7 +95,11 @@
     "proposed": "¡Película propuesta!",
     "proposeFailed": "Error al proponer película",
     "searchFailed": "Error al buscar películas",
-    "popularFailed": "Error al cargar películas populares"
+    "popularFailed": "Error al cargar películas populares",
+    "remaining": "{count} restantes",
+    "noRemaining": "Límite alcanzado",
+    "limitReached": "Alcanzaste el límite de {limit} películas",
+    "limitReachedHint": "Ya alcanzaste tu límite de propuestas. Esperá a que el host seleccione una película."
   },
   "quiz": {
     "complete": "¡Quiz Completado!",

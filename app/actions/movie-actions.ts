@@ -50,6 +50,12 @@ export async function getRoomDetails(roomId: string) {
   )();
 }
 
+const MAX_MOVIES_PER_GUEST = 3;
+
+export async function getMovieLimitConfig() {
+  return { maxMoviesPerGuest: MAX_MOVIES_PER_GUEST };
+}
+
 export async function proposeMovie(
   roomId: string,
   movieId: string,
@@ -57,9 +63,31 @@ export async function proposeMovie(
   year: number | null,
   posterUrl: string | null,
   overview: string | null,
-  userId: string
+  userId: string,
+  isHost: boolean = false
 ) {
   const supabase = createAdminClient();
+
+  // Verificar límite de películas para invitados (no host)
+  if (!isHost) {
+    const { count, error: countError } = await supabase
+      .from("room_movies")
+      .select("*", { count: "exact", head: true })
+      .eq("room_id", roomId)
+      .eq("proposed_by", userId);
+
+    if (countError) {
+      return { error: "Failed to check movie limit" };
+    }
+
+    if (count !== null && count >= MAX_MOVIES_PER_GUEST) {
+      return {
+        error: "LIMIT_REACHED",
+        limit: MAX_MOVIES_PER_GUEST,
+        current: count,
+      };
+    }
+  }
 
   // Primero insertar o actualizar la película
   const { error: movieError } = await supabase.from("movies").upsert({
@@ -94,6 +122,22 @@ export async function proposeMovie(
   updateTag(`room-movies-${roomId}`);
 
   return { success: true, roomMovie };
+}
+
+export async function getUserProposedCount(roomId: string, userId: string) {
+  const supabase = createAdminClient();
+
+  const { count, error } = await supabase
+    .from("room_movies")
+    .select("*", { count: "exact", head: true })
+    .eq("room_id", roomId)
+    .eq("proposed_by", userId);
+
+  if (error) {
+    return { count: 0, error: "Failed to get count" };
+  }
+
+  return { count: count || 0, limit: MAX_MOVIES_PER_GUEST };
 }
 
 export async function voteForMovie(
@@ -171,6 +215,10 @@ export async function getProposedMovies(roomId: string) {
       movie_votes (
         user_id,
         vote
+      ),
+      users!proposed_by (
+        id,
+        name
       )
     `
         )

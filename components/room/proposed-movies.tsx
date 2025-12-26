@@ -24,7 +24,16 @@ import {
   PaginationNext,
   PaginationPrevious,
 } from "@/components/ui/pagination";
-import { ThumbsUp, ThumbsDown, Check, Film, Loader2, X } from "lucide-react";
+import {
+  ThumbsUp,
+  ThumbsDown,
+  Check,
+  Film,
+  Loader2,
+  X,
+  Trophy,
+  User,
+} from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import {
   getProposedMovies,
@@ -33,6 +42,7 @@ import {
   removeProposedMovie,
 } from "@/app/actions/movie-actions";
 import { getMovieDetails, getPosterUrl } from "@/lib/tmdb";
+import { getAvatar } from "@/lib/utils/avatars";
 import { toast } from "sonner";
 import type { RoomMovie, ProposedMoviesProps } from "@/lib/types";
 import { MovieDetailsDialog } from "@/components/movie/movie-details-dialog";
@@ -65,23 +75,63 @@ export function ProposedMovies({
   const [currentPage, setCurrentPage] = useState(1);
   const MOVIES_PER_PAGE = 3;
 
+  // Función para calcular la puntuación de ranking de una película
+  const getMovieScore = (roomMovie: RoomMovie) => {
+    const upvotes = roomMovie.movie_votes.filter((v) => v.vote).length;
+    const downvotes = roomMovie.movie_votes.filter((v) => !v.vote).length;
+    const netScore = upvotes - downvotes;
+    return { netScore, upvotes, downvotes };
+  };
+
+  // Ordenar películas por ranking (votos netos, luego upvotes, luego fecha)
+  const rankedMovies = useMemo(() => {
+    return [...movies].sort((a, b) => {
+      const scoreA = getMovieScore(a);
+      const scoreB = getMovieScore(b);
+
+      // 1. Mayor puntuación neta primero
+      if (scoreB.netScore !== scoreA.netScore) {
+        return scoreB.netScore - scoreA.netScore;
+      }
+
+      // 2. Desempate: más upvotes totales primero
+      if (scoreB.upvotes !== scoreA.upvotes) {
+        return scoreB.upvotes - scoreA.upvotes;
+      }
+
+      // 3. Desempate final: película propuesta primero (más antigua)
+      return (
+        new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+      );
+    });
+  }, [movies]);
+
   // Calcular películas paginadas
   const { paginatedMovies, totalPages } = useMemo(() => {
-    const total = Math.ceil(movies.length / MOVIES_PER_PAGE);
+    const total = Math.ceil(rankedMovies.length / MOVIES_PER_PAGE);
     const start = (currentPage - 1) * MOVIES_PER_PAGE;
     const end = start + MOVIES_PER_PAGE;
     return {
-      paginatedMovies: movies.slice(start, end),
+      paginatedMovies: rankedMovies.slice(start, end),
       totalPages: total,
     };
-  }, [movies, currentPage]);
+  }, [rankedMovies, currentPage]);
+
+  // Obtener la posición de ranking global de una película
+  const getRankPosition = (roomMovieId: string) => {
+    return rankedMovies.findIndex((m) => m.id === roomMovieId) + 1;
+  };
 
   // Ajustar página si se eliminan películas y la página actual queda vacía
   useEffect(() => {
-    if (currentPage > 1 && paginatedMovies.length === 0 && movies.length > 0) {
-      setCurrentPage(Math.ceil(movies.length / MOVIES_PER_PAGE));
+    if (
+      currentPage > 1 &&
+      paginatedMovies.length === 0 &&
+      rankedMovies.length > 0
+    ) {
+      setCurrentPage(Math.ceil(rankedMovies.length / MOVIES_PER_PAGE));
     }
-  }, [movies.length, currentPage, paginatedMovies.length]);
+  }, [rankedMovies.length, currentPage, paginatedMovies.length]);
 
   // SWR para películas propuestas - polling + broadcast para actualizaciones instantáneas
   const { data: moviesData } = useSWR(
@@ -347,6 +397,7 @@ export function ProposedMovies({
             const localized = localizedMovies.get(movie.id);
             const displayTitle = localized?.title || movie.title;
             const displayOverview = localized?.overview || movie.overview;
+            const rankPosition = getRankPosition(roomMovie.id);
 
             return (
               <motion.div
@@ -391,14 +442,56 @@ export function ProposedMovies({
                 <div className="flex-1 min-w-0">
                   <div className="flex items-start justify-between gap-1 md:gap-2">
                     <div className="min-w-0 flex-1">
-                      <h3 className="font-semibold text-sm md:text-base truncate">
-                        {displayTitle}
-                      </h3>
-                      {movie.year && (
-                        <p className="text-xs md:text-sm text-muted-foreground">
-                          {movie.year}
-                        </p>
-                      )}
+                      <div className="flex items-center gap-1.5 md:gap-2">
+                        <Badge
+                          variant={rankPosition === 1 ? "default" : "secondary"}
+                          className={`shrink-0 text-[10px] md:text-xs px-1 md:px-1.5 py-0.5 font-medium ${
+                            rankPosition === 1
+                              ? "bg-yellow-500 hover:bg-yellow-500 text-yellow-950"
+                              : rankPosition === 2
+                                ? "bg-gray-300 hover:bg-gray-300 text-gray-700"
+                                : rankPosition === 3
+                                  ? "bg-amber-600 hover:bg-amber-600 text-amber-50"
+                                  : ""
+                          }`}
+                        >
+                          {rankPosition === 1 && (
+                            <Trophy className="w-2.5 h-2.5 md:w-3 md:h-3" />
+                          )}
+                          <span className="ml-0.5">{rankPosition}</span>
+                        </Badge>
+                        <h3 className="font-semibold text-sm md:text-base truncate">
+                          {displayTitle}
+                        </h3>
+                      </div>
+                      <div className="flex items-center gap-1.5 md:gap-2 mt-0.5">
+                        {movie.year && (
+                          <span className="text-xs md:text-sm text-muted-foreground">
+                            {movie.year}
+                          </span>
+                        )}
+                        {roomMovie.users && (
+                          <>
+                            <span className="text-muted-foreground text-xs hidden sm:inline">
+                              •
+                            </span>
+                            <div className="flex items-center gap-1">
+                              <span
+                                className={`w-4 h-4 md:w-5 md:h-5 rounded-full flex items-center justify-center text-[10px] md:text-xs ${
+                                  getAvatar(roomMovie.users.id).color
+                                }`}
+                              >
+                                {getAvatar(roomMovie.users.id).emoji}
+                              </span>
+                              <span className="text-xs text-muted-foreground truncate max-w-[60px] md:max-w-[100px]">
+                                {roomMovie.users.id === userId
+                                  ? t("you")
+                                  : roomMovie.users.name}
+                              </span>
+                            </div>
+                          </>
+                        )}
+                      </div>
                     </div>
                     <div className="flex gap-1 md:gap-2 shrink-0">
                       {isHost && (
@@ -527,13 +620,14 @@ export function ProposedMovies({
 
         {/* Paginación */}
         {totalPages > 1 && (
-          <Pagination className="mt-4">
-            <PaginationContent>
+          <Pagination className="mt-3 md:mt-4">
+            <PaginationContent className="gap-0.5 md:gap-1">
               <PaginationItem>
                 <PaginationPrevious
                   onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
                   disabled={currentPage === 1}
                   aria-label={t("previousPage")}
+                  className="h-8 w-8 md:h-9 md:w-auto md:px-3"
                 />
               </PaginationItem>
               {Array.from({ length: totalPages }, (_, i) => i + 1).map(
@@ -542,6 +636,7 @@ export function ProposedMovies({
                     <PaginationLink
                       onClick={() => setCurrentPage(page)}
                       isActive={currentPage === page}
+                      className="h-8 w-8 md:h-9 md:w-9 text-xs md:text-sm"
                     >
                       {page}
                     </PaginationLink>
@@ -555,6 +650,7 @@ export function ProposedMovies({
                   }
                   disabled={currentPage === totalPages}
                   aria-label={t("nextPage")}
+                  className="h-8 w-8 md:h-9 md:w-auto md:px-3"
                 />
               </PaginationItem>
             </PaginationContent>

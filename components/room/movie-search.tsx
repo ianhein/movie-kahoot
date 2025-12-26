@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useTranslations, useLocale } from "next-intl";
 import { mutate } from "swr";
 import {
@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Search, Plus, Star, Film } from "lucide-react";
 import {
   searchMovies,
@@ -19,7 +20,11 @@ import {
   getPosterUrl,
   type TMDBMovie,
 } from "@/lib/tmdb";
-import { proposeMovie } from "@/app/actions/movie-actions";
+import {
+  proposeMovie,
+  getUserProposedCount,
+  getMovieLimitConfig,
+} from "@/app/actions/movie-actions";
 import { createClient } from "@/lib/supabase/client";
 import { toast } from "sonner";
 import type { MovieSearchProps } from "@/lib/types";
@@ -27,6 +32,7 @@ import type { MovieSearchProps } from "@/lib/types";
 export function MovieSearch({
   roomId,
   userId,
+  isHost,
   onMovieProposed,
 }: MovieSearchProps) {
   const t = useTranslations("movieSearch");
@@ -35,6 +41,24 @@ export function MovieSearch({
   const [movies, setMovies] = useState<TMDBMovie[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [isProposing, setIsProposing] = useState<number | null>(null);
+  const [proposedCount, setProposedCount] = useState(0);
+  const [maxMovies, setMaxMovies] = useState(3);
+
+  // Obtener configuración de límite y cantidad de películas propuestas
+  useEffect(() => {
+    getMovieLimitConfig().then((config) => {
+      setMaxMovies(config.maxMoviesPerGuest);
+    });
+
+    if (!isHost) {
+      getUserProposedCount(roomId, userId).then((result) => {
+        setProposedCount(result.count);
+      });
+    }
+  }, [roomId, userId, isHost]);
+
+  const remainingProposals = maxMovies - proposedCount;
+  const canPropose = isHost || remainingProposals > 0;
 
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -65,6 +89,11 @@ export function MovieSearch({
   };
 
   const handlePropose = async (movie: TMDBMovie) => {
+    if (!canPropose) {
+      toast.error(t("limitReached", { limit: maxMovies }));
+      return;
+    }
+
     setIsProposing(movie.id);
     try {
       const year = movie.release_date
@@ -77,12 +106,23 @@ export function MovieSearch({
         year,
         getPosterUrl(movie.poster_path),
         movie.overview,
-        userId
+        userId,
+        isHost
       );
 
       if (result.error) {
-        toast.error(result.error);
+        if (result.error === "LIMIT_REACHED") {
+          toast.error(t("limitReached", { limit: maxMovies }));
+          setProposedCount(result.current || maxMovies);
+        } else {
+          toast.error(result.error);
+        }
       } else {
+        // Actualizar contador local
+        if (!isHost) {
+          setProposedCount((prev) => prev + 1);
+        }
+
         // Limpiar búsqueda
         setMovies([]);
         setQuery("");
@@ -116,25 +156,39 @@ export function MovieSearch({
   return (
     <Card>
       <CardHeader>
-        <CardTitle>{t("title")}</CardTitle>
-        <CardDescription>{t("description")}</CardDescription>
+        <div className="flex items-center justify-between gap-2">
+          <div>
+            <CardTitle>{t("title")}</CardTitle>
+            <CardDescription>{t("description")}</CardDescription>
+          </div>
+          {!isHost && (
+            <Badge
+              variant={remainingProposals > 0 ? "secondary" : "destructive"}
+              className="shrink-0 text-xs"
+            >
+              {remainingProposals > 0
+                ? t("remaining", { count: remainingProposals })
+                : t("noRemaining")}
+            </Badge>
+          )}
+        </div>
       </CardHeader>
       <CardContent className="space-y-4">
         <form onSubmit={handleSearch} className="flex gap-2">
           <Input
-            placeholder={t("placeholder")}
+            placeholder={!canPropose ? t("limitReachedHint") : t("placeholder")}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            disabled={isSearching}
+            disabled={isSearching || !canPropose}
           />
-          <Button type="submit" disabled={isSearching}>
+          <Button type="submit" disabled={isSearching || !canPropose}>
             <Search className="w-4 h-4" />
           </Button>
           <Button
             type="button"
             variant="outline"
             onClick={loadPopular}
-            disabled={isSearching}
+            disabled={isSearching || !canPropose}
           >
             {t("popular")}
           </Button>
@@ -179,7 +233,7 @@ export function MovieSearch({
                 <Button
                   size="sm"
                   onClick={() => handlePropose(movie)}
-                  disabled={isProposing === movie.id}
+                  disabled={isProposing === movie.id || !canPropose}
                 >
                   <Plus className="w-4 h-4 mr-1" />
                   {isProposing === movie.id ? t("proposing") : t("propose")}

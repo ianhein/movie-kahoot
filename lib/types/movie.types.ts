@@ -18,4 +18,8 @@ export type RoomMovie = {
     user_id: string;
     vote: boolean;
   }>;
+  users: {
+    id: string;
+    name: string;
+  } | null;
 };

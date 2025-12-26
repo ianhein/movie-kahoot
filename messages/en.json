@@ -77,7 +77,10 @@
     "pickAnother": "Want to pick another movie?",
     "previousPage": "Previous page",
     "nextPage": "Next page",
-    "page": "Page {page} of {total}"
+    "page": "Page {page} of {total}",
+    "rank": "Rank #{position}",
+    "rankFirst": "1st - Leading!",
+    "proposedBy": "Proposed by {name}"
   },
   "movieSearch": {
     "title": "Search Movies",
@@ -92,7 +95,11 @@
     "proposed": "Movie proposed!",
     "proposeFailed": "Failed to propose movie",
     "searchFailed": "Failed to search movies",
-    "popularFailed": "Failed to load popular movies"
+    "popularFailed": "Failed to load popular movies",
+    "remaining": "{count} left",
+    "noRemaining": "Limit reached",
+    "limitReached": "You reached the limit of {limit} movies",
+    "limitReachedHint": "You've reached your proposal limit. Wait for the host to select a movie."
   },
   "quiz": {
     "complete": "Quiz Complete!",
