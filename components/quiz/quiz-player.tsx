@@ -160,7 +160,8 @@ export function QuizPlayer({ roomId, userId }: QuizPlayerProps) {
       const result = await submitAnswer(
         currentQuestion.id,
         userId,
-        originalIndex
+        originalIndex,
+        timeLeft // Pass remaining time for scoring
       );
 
       if (result.error) {
@@ -468,7 +469,7 @@ export function QuizPlayer({ roomId, userId }: QuizPlayerProps) {
                   >
                     <Button
                       variant="outline"
-                      className={`w-full h-auto min-h-15 text-lg p-4 ${getOptionStyle(visualIndex)}`}
+                      className={`w-full h-auto min-h-16 text-lg p-4 whitespace-normal break-words text-left leading-snug ${getOptionStyle(visualIndex)}`}
                       onClick={() => handleSelectOption(visualIndex)}
                       disabled={hasAnswered || isSubmitting || timeLeft === 0}
                     >

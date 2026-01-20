@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { motion, AnimatePresence } from "framer-motion";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -38,9 +39,13 @@ import {
   publishQuestions,
   getAllQuestions,
   getQuestionAnswers,
+  deleteQuestion,
 } from "@/app/actions/quiz-actions";
+import { generateQuestionsAction } from "@/app/actions/ai-actions";
 import { toast } from "sonner";
 import type { Question, Answer, QuizHostProps, Room } from "@/lib/types";
+import { GeneratedQuestion } from "@/lib/gemini";
+import { Sparkles, Loader2 } from "lucide-react";
 import { ThemeToggle } from "@/components/theme-toggle";
 
 // Helper para formatear tiempo
@@ -62,6 +67,15 @@ export function QuizHost({
   const [isCreating, setIsCreating] = useState(false);
   const [isPublishing, setIsPublishing] = useState(false);
   const [isFinishing, setIsFinishing] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [questionToDelete, setQuestionToDelete] = useState<string | null>(null);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [showGenerateDialog, setShowGenerateDialog] = useState(false);
+  const [generatedQuestions, setGeneratedQuestions] = useState<GeneratedQuestion[]>([]);
+  // New state for suggestion cycling
+  const [activeSuggestions, setActiveSuggestions] = useState<GeneratedQuestion[]>([]);
+  const [currentSuggestionIndex, setCurrentSuggestionIndex] = useState(0);
+
   const [questions, setQuestions] = useState<Question[]>([]);
   const [arePublished, setArePublished] = useState(false);
   const [questionAnswers, setQuestionAnswers] = useState<
@@ -255,9 +269,37 @@ export function QuizHost({
         if (result.question) {
           setQuestions((prev) => [...prev, result.question as Question]);
         }
-        setQuestionText("");
-        setOptions(["", "", "", ""]);
-        setCorrectIndex(0);
+        // Remove used suggestion from activeSuggestions if applicable
+        if (activeSuggestions.length > 0) {
+            const newSuggestions = activeSuggestions.filter((_, i) => i !== currentSuggestionIndex);
+            setActiveSuggestions(newSuggestions);
+            
+            if (newSuggestions.length === 0) {
+                // No more suggestions
+                setQuestionText("");
+                setOptions(["", "", "", ""]);
+                setCorrectIndex(0);
+                setCurrentSuggestionIndex(0);
+                toast.success("All suggestions used!");
+            } else {
+                 // Move to next available or stay at index
+                 let newIndex = currentSuggestionIndex;
+                 if (newIndex >= newSuggestions.length) {
+                     newIndex = newSuggestions.length - 1;
+                 }
+                 setCurrentSuggestionIndex(newIndex);
+                 
+                 // Auto-load next suggestion
+                 const nextQ = newSuggestions[newIndex];
+                 setQuestionText(nextQ.text);
+                 setOptions(nextQ.options);
+                 setCorrectIndex(nextQ.correct_index);
+            }
+        } else {
+            setQuestionText("");
+            setOptions(["", "", "", ""]);
+            setCorrectIndex(0);
+        }
       }
     } catch {
       toast.error("Failed to create question");
@@ -317,6 +359,92 @@ export function QuizHost({
       setIsFinishing(false);
     }
   };
+
+  const handleGenerateQuestions = async () => {
+    setIsGenerating(true);
+    try {
+      // Intentar generar preguntas sobre la película ganadora
+      const existingQuestionTexts = questions.map(q => q.text);
+      const result = await generateQuestionsAction(
+          roomId, 
+          undefined, 
+          3, 
+          "en", // TODO: Usar el locale real
+          existingQuestionTexts
+      );
+
+      if (result.error) {
+        toast.error(result.error);
+      } else if (result.questions) {
+        setGeneratedQuestions(result.questions);
+
+        setShowGenerateDialog(true);
+        toast.success(`Generated questions about "${result.source}"`);
+      }
+    } catch {
+      toast.error("Failed to generate questions");
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+
+
+  const handleDeleteQuestion = async () => {
+    if (!questionToDelete) return;
+
+    setIsDeleting(true);
+    try {
+      const result = await deleteQuestion(roomId, questionToDelete);
+      if (result.error) {
+        toast.error(result.error);
+      } else {
+        toast.success("Question deleted");
+        setQuestions((prev) => prev.filter((q) => q.id !== questionToDelete));
+        setQuestionToDelete(null);
+      }
+    } catch {
+      toast.error("Failed to delete question");
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
+  const loadSuggestionsToEditor = () => {
+     if (generatedQuestions.length === 0) return;
+     setActiveSuggestions(generatedQuestions);
+     setCurrentSuggestionIndex(0);
+     loadSuggestionIntoForm(generatedQuestions[0]);
+     setShowGenerateDialog(false);
+     toast.success("Loaded 3 generated questions! Cycle through them to edit/add.");
+  };
+
+  const loadSuggestionIntoForm = (q: GeneratedQuestion) => {
+    setQuestionText(q.text);
+    setOptions(q.options);
+    setCorrectIndex(q.correct_index);
+  };
+
+  const handleNextSuggestion = () => {
+    const nextIndex = (currentSuggestionIndex + 1) % activeSuggestions.length;
+    setCurrentSuggestionIndex(nextIndex);
+    loadSuggestionIntoForm(activeSuggestions[nextIndex]);
+  };
+
+  const handlePrevSuggestion = () => {
+    const prevIndex = (currentSuggestionIndex - 1 + activeSuggestions.length) % activeSuggestions.length;
+    setCurrentSuggestionIndex(prevIndex);
+    loadSuggestionIntoForm(activeSuggestions[prevIndex]);
+  };
+
+  const handleDiscardSuggestions = () => {
+    setActiveSuggestions([]);
+    setCurrentSuggestionIndex(0);
+    setQuestionText("");
+    setOptions(["", "", "", ""]);
+  };
+
+
 
   return (
     <TooltipProvider>
@@ -399,12 +527,89 @@ export function QuizHost({
                 </div>
               </div>
             </CardHeader>
+            {/* Lobby Avatar Grid */}
+            {!arePublished && members.length > 0 && (
+              <CardContent className="border-t bg-gray-50/50 dark:bg-gray-900/50">
+                <div className="mb-2 text-sm text-muted-foreground font-medium">
+                  Lobby ({members.length} players ready)
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-4">
+                  <AnimatePresence>
+                    {members.map((member: any) => {
+                      const name = member.users?.name || "Unknown";
+                      return (
+                        <motion.div
+                          key={member.user_id}
+                          initial={{ opacity: 0, scale: 0.5 }}
+                          animate={{ opacity: 1, scale: 1 }}
+                          exit={{ opacity: 0, scale: 0.5 }}
+                          className="flex flex-col items-center gap-2"
+                        >
+                           <div className="relative">
+                              <div className="w-16 h-16 rounded-full overflow-hidden border-4 border-white dark:border-gray-800 shadow-md bg-purple-100">
+                                <img 
+                                  src={`https://api.dicebear.com/9.x/avataaars/svg?seed=${name}&backgroundColor=b6e3f4,c0aede,d1d4f9`} 
+                                  alt={name}
+                                  className="w-full h-full object-cover"
+                                />
+                              </div>
+                              <div className="absolute bottom-0 right-0 w-4 h-4 bg-green-500 border-2 border-white dark:border-gray-800 rounded-full"></div>
+                           </div>
+                           <span className="text-xs font-medium text-center truncate w-full px-1">
+                              {name}
+                           </span>
+                        </motion.div>
+                      );
+                    })}
+                  </AnimatePresence>
+                </div>
+              </CardContent>
+            )}
           </Card>
 
           {!arePublished && (
             <Card>
               <CardHeader>
-                <CardTitle>Create Question {questions.length + 1}</CardTitle>
+                <div className="flex justify-between items-center">
+                  <CardTitle>Create Question {questions.length + 1}</CardTitle>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleGenerateQuestions}
+                    disabled={isGenerating || questions.length >= 15}
+                    className="gap-2 bg-gradient-to-r from-purple-500/10 to-blue-500/10 hover:from-purple-500/20 hover:to-blue-500/20 border-purple-200 dark:border-purple-800 text-purple-700 dark:text-purple-300"
+                  >
+                    {isGenerating ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Sparkles className="w-4 h-4" />
+                    )}
+                    Generate with AI
+                  </Button>
+                </div>
+                
+                {/* Suggestion Toolbar */}
+                {activeSuggestions.length > 0 && (
+                    <div className="mt-4 p-3 bg-purple-50 dark:bg-purple-900/10 border border-purple-200 dark:border-purple-800 rounded-lg flex items-center justify-between">
+                         <div className="flex items-center gap-2">
+                            <span className="text-sm font-medium text-purple-700 dark:text-purple-300">
+                                Suggestion {currentSuggestionIndex + 1} of {activeSuggestions.length}
+                            </span>
+                         </div>
+                         <div className="flex items-center gap-2">
+                             <Button size="sm" variant="outline" onClick={handlePrevSuggestion} className="h-8">
+                                &lt; Prev
+                             </Button>
+                             <Button size="sm" variant="outline" onClick={handleNextSuggestion} className="h-8">
+                                Next &gt;
+                             </Button>
+                             <div className="w-px h-4 bg-gray-300 dark:bg-gray-700 mx-1" />
+                             <Button size="sm" variant="ghost" onClick={handleDiscardSuggestions} className="h-8 text-red-500 hover:text-red-600 hover:bg-red-50">
+                                Discard All
+                             </Button>
+                         </div>
+                    </div>
+                )}
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="space-y-2">
@@ -517,6 +722,16 @@ export function QuizHost({
                               </Badge>
                             )}
                           </div>
+                          {!arePublished && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-6 w-6 text-red-400 hover:text-red-600 hover:bg-red-50"
+                              onClick={() => setQuestionToDelete(q.id)}
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          )}
                         </div>
                         <p className="font-semibold mb-2">{q.text}</p>
                         <div className="grid grid-cols-2 gap-2 mb-3">
@@ -608,6 +823,95 @@ export function QuizHost({
                 disabled={isFinishing}
               >
                 {isFinishing ? "Finishing..." : "Finish Quiz"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+        <Dialog open={showGenerateDialog} onOpenChange={setShowGenerateDialog}>
+          <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Sparkles className="w-5 h-5 text-purple-500" />
+                Review Generated Questions
+              </DialogTitle>
+              <DialogDescription>
+                Select the questions you want to add to the quiz.
+              </DialogDescription>
+            </DialogHeader>
+            
+            <div className="space-y-4 my-4">
+              {generatedQuestions.map((q, index) => (
+                <div 
+                  key={index} 
+                  className="p-4 border rounded-lg bg-purple-50 dark:bg-purple-900/10 border-purple-200 dark:border-purple-800"
+                >
+                  <div className="flex items-start gap-3">
+                    <div className="flex-1 space-y-2">
+                       <p className="font-medium">{q.text}</p>
+                      <div className="grid grid-cols-2 gap-2 text-sm text-muted-foreground">
+                        {q.options.map((opt, i) => (
+                          <div key={i} className={`px-2 py-1 rounded border ${
+                            i === q.correct_index 
+                              ? 'bg-green-100 dark:bg-green-900/30 border-green-200' 
+                              : 'bg-background border-transparent'
+                          }`}>
+                            {opt}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <DialogFooter>
+              <Button
+                variant="outline"
+                onClick={() => setShowGenerateDialog(false)}
+              >
+                Close
+              </Button>
+               <Button
+                onClick={loadSuggestionsToEditor}
+                className="gap-2 bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white"
+              >
+                <Sparkles className="w-4 h-4" />
+                Load All to Editor
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog open={!!questionToDelete} onOpenChange={(open) => !open && setQuestionToDelete(null)}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Delete Question?</DialogTitle>
+              <DialogDescription>
+                Are you sure you want to delete this question? This action cannot be undone.
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <Button
+                variant="outline"
+                onClick={() => setQuestionToDelete(null)}
+                disabled={isDeleting}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="destructive"
+                onClick={handleDeleteQuestion}
+                disabled={isDeleting}
+              >
+                {isDeleting ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    Deleting...
+                  </>
+                ) : (
+                  "Delete Question"
+                )}
               </Button>
             </DialogFooter>
           </DialogContent>

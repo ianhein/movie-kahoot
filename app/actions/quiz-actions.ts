@@ -113,7 +113,11 @@ export async function publishQuestions(roomId: string) {
     const updates = questions.map((q, index) =>
       supabase
         .from("questions")
-        .update({ published: true, question_order: index })
+        .update({ 
+          published: true, 
+          question_order: index,
+          published_at: new Date().toISOString()
+        })
         .eq("id", q.id)
     );
 
@@ -190,35 +194,75 @@ export async function createQuestion(
   return { success: true, question };
 }
 
+export async function deleteQuestion(roomId: string, questionId: string) {
+  try {
+    const supabase = createAdminClient();
+
+    const { error } = await supabase
+      .from("questions")
+      .delete()
+      .eq("id", questionId)
+      .eq("room_id", roomId);
+
+    if (error) {
+      return { error: "Failed to delete question" };
+    }
+
+    return { success: true };
+  } catch {
+    return { error: "Failed to delete question" };
+  }
+}
+
 export async function submitAnswer(
   questionId: string,
   userId: string,
-  optionIndex: number
+  optionIndex: number,
+  timeLeft: number = 0 // New param
 ) {
   const supabase = createAdminClient();
 
+  // 1. Get question details for validation and scoring
+  const { data: question } = await supabase
+    .from("questions")
+    .select("room_id, correct_index, duration_seconds")
+    .eq("id", questionId)
+    .single();
+
+  if (!question) {
+      return { error: "Question not found" };
+  }
+
+  // 2. Calculate score
+  let score = 0;
+  if (optionIndex === question.correct_index) {
+      // Formula: 1000 * (1 - ((duration - timeLeft) / duration) / 2)
+      // Simplifies to: 500 + (500 * (timeLeft / duration))
+      // Max (instant): 1000 pts
+      // Min (last second): ~500 pts
+      const duration = question.duration_seconds || 20;
+      // Clamp timeLeft between 0 and duration to be safe
+      const safeTimeLeft = Math.max(0, Math.min(timeLeft, duration));
+      
+      const timeFactor = safeTimeLeft / duration;
+      score = Math.floor(500 + (500 * timeFactor));
+  }
+
+  // 3. Save answer with score
   const { error } = await supabase.from("answers").insert({
     question_id: questionId,
     user_id: userId,
     option_index: optionIndex,
+    score: score // Save calculated score
   });
 
   if (error) {
     return { error: "Failed to submit answer" };
   }
 
-  // Obtener room_id para revalidar
-  const { data: question } = await supabase
-    .from("questions")
-    .select("room_id")
-    .eq("id", questionId)
-    .single();
+  updateTag(`quiz-results-${question.room_id}`);
 
-  if (question) {
-    updateTag(`quiz-results-${question.room_id}`);
-  }
-
-  return { success: true };
+  return { success: true, score }; // Return score to client
 }
 
 export async function getQuestions(roomId: string) {
